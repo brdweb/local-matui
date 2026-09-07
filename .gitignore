@@ -1,0 +1,13 @@
+# Local secrets and configuration
+.env
+.env.*
+!.env.example
+*.local
+
+# Local development and agent state
+.venv/
+node_modules/
+__pycache__/
+*.py[cod]
+.hermes/
+.DS_Store
