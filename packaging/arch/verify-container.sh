@@ -8,7 +8,7 @@ useradd -m -u "$BUILD_UID" builder
 # Rootless Docker maps the bind mount owner to container root. Build in a
 # disposable builder-owned directory, then copy just the package back as root.
 mkdir -p /tmp/local-matui-build
-cp /work/PKGBUILD /work/local-matui /work/local-matui.desktop /work/README.md /work/INSTALL.txt /work/THIRD-PARTY-NOTICES.tar.gz /work/DEVELOPMENT-STATUS /tmp/local-matui-build/
+cp /work/PKGBUILD /work/local-matui /work/local-matui.desktop /work/README.md /work/INSTALL.txt /work/THIRD-PARTY-NOTICES.tar.gz /work/DEVELOPMENT-STATUS /work/LICENSE /tmp/local-matui-build/
 chown -R builder:builder /tmp/local-matui-build
 cd /tmp/local-matui-build
 runuser -u builder -- makepkg --noconfirm --force
@@ -25,6 +25,7 @@ pacman -Qkk local-matui
 local-matui --version
 [[ "$(local-matui --version)" == "local-matui $(cat /work/VERSION)" ]]
 desktop-file-validate /usr/share/applications/local-matui.desktop
+test -s /usr/share/licenses/local-matui/LICENSE
 local-matui --demo --snapshot
 local-matui --list-devices
 runuser -u builder -- python /work/terminal_smoke.py /usr/bin/local-matui

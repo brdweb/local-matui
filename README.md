@@ -15,11 +15,9 @@ versions and audio devices may behave differently; see [Known limitations](#know
 
 ## Installation
 
-Current beta: **[v0.1.0-beta.1](https://github.com/brdweb/local-matui/releases/tag/v0.1.0-beta.1)**
+Current beta: **[v0.1.0-beta.2](https://github.com/brdweb/local-matui/releases/tag/v0.1.0-beta.2)**
 Download the Flatpak bundle, Arch package or Linux x86-64 archive and
-`SHA256SUMS` from the release page. That release was published before the project
-was renamed, so its files, command and Flatpak application ID still read `matui`;
-the next release ships as `local-matui`. In the download directory, verify the files:
+`SHA256SUMS` from the release page. In the download directory, verify the files:
 
 ```sh
 sha256sum --ignore-missing -c SHA256SUMS
@@ -31,8 +29,8 @@ file integrity; packages are not signed. See [CHANGELOG.md](CHANGELOG.md) for re
 ### Flatpak
 
 ```sh
-flatpak install --user ./matui-v0.1.0-beta.1-linux-x86_64.flatpak
-flatpak run io.github.brdweb.Matui
+flatpak install --user ./local-matui-v0.1.0-beta.2-linux-x86_64.flatpak
+flatpak run io.github.brdweb.LocalMatui
 ```
 
 See [Flatpak setup and permissions](packaging/flatpak/README.md). It uses a separate
@@ -41,8 +39,8 @@ profile from native Local Matui; set up your login on first launch.
 ### Arch Linux / Omarchy
 
 ```sh
-sudo pacman -U ./matui-0.1.0beta.1-1-x86_64.pkg.tar.zst
-matui
+sudo pacman -U ./local-matui-0.1.0beta.2-1-x86_64.pkg.tar.zst
+local-matui
 ```
 
 For other Linux distributions, use Flatpak, follow the native archive's bundled
@@ -56,9 +54,6 @@ local-matui                 # Opens connection setup when there is no saved logi
 local-matui --setup         # Edit connection/login and local speaker settings
 local-matui --demo          # Offline preview; never connects or opens audio
 ```
-
-The published v0.1.0-beta.1 installs this command as `matui`; everything below
-otherwise applies unchanged.
 
 Press **F2** for connection settings and **? / F1** for playback controls. The
 settings screen accepts either a Music Assistant built-in username/password or a
@@ -276,5 +271,3 @@ For code changes, follow [AGENTS.md](AGENTS.md) and run the checks above.
 
 Local Matui is licensed under the [MIT License](LICENSE). Third-party dependencies
 retain their own licenses; packaged distributions include their notices.
-The existing `v0.1.0-beta.1` assets predate the addition of the MIT license file;
-the updated file and packaging metadata will be included in future builds.
