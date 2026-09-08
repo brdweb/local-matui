@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+- Rework the controls and layout: the queue stays beside the music browser, the
+  header carries transport state, volume, mute and shuffle/repeat, and the hint
+  lines follow the focused pane. **p** is now play/pause with tracks on
+  **<**/**>**, **z**/**l** toggle shuffle and cycle repeat, **s** stops, and Esc
+  cancels or steps back instead of switching panes.
+- Volume keys use the server's `volume_up`/`volume_down` commands instead of
+  reading the level first, and seeking resolves the target from the displayed
+  position, so neither issues a request per keystroke.
+- Group the controls menu under headings and add **/** to filter it.
+
+- Add a spectrum visualizer over Matui's own local playback, as a panel or a
+  full-screen view, cycled with **v**. Analysis uses only decoded samples this
+  process is scheduled to emit; a remote speaker, disabled local audio or muted
+  output shows the reason rather than invented motion.
+
 ## 0.1.0-beta.1 — 2026-09-08
 
 First private beta for Omarchy/Arch Linux x86-64, targeting Music Assistant 2.10.2.

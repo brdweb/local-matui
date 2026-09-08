@@ -126,16 +126,21 @@ async fn main() -> Result<()> {
             return Ok(());
         };
         let api = matui::api::ApiClient::new(&config.server, token_value)?;
+        // The visualizer analyzes only what this endpoint plays.
+        let spectrum = matui::visualizer::Analyzer::new();
         let audio = if (args.local || config.local_playback) && !args.remote_only {
-            Some(matui::audio::start(matui::audio::AudioConfig {
-                server: config.server.clone(),
-                token: token_value.clone(),
-                player_id: config.player_id.clone(),
-                player_name: config.player_name.clone(),
-                device_id: config.device_id.clone(),
-                volume: config.volume,
-                muted: false,
-            })?)
+            Some(matui::audio::start(
+                matui::audio::AudioConfig {
+                    server: config.server.clone(),
+                    token: token_value.clone(),
+                    player_id: config.player_id.clone(),
+                    player_name: config.player_name.clone(),
+                    device_id: config.device_id.clone(),
+                    volume: config.volume,
+                    muted: false,
+                },
+                Some(std::sync::Arc::new(spectrum.clone())),
+            )?)
         } else {
             None
         };
@@ -149,7 +154,13 @@ async fn main() -> Result<()> {
             None
         };
         let result = matui::terminal_ui::run(
-            App::default(),
+            App {
+                // Only real device output produces samples; a remote speaker
+                // never routes audio through this machine.
+                spectrum: audio.as_ref().map(|_| spectrum.clone()),
+                local_endpoint: local_id.map(str::to_owned),
+                ..App::default()
+            },
             |app| {
                 while let Ok(update) = controller.updates.try_recv() {
                     matui::presentation::apply(app, update);

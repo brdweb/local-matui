@@ -120,31 +120,9 @@ async fn execute(api: &ApiClient, request: Request) -> anyhow::Result<()> {
         Action::Toggle => api.control(&player, Control::Toggle).await,
         Action::Next => api.control(&player, Control::Next).await,
         Action::Previous => api.control(&player, Control::Previous).await,
-        Action::Volume(delta) => {
-            let current = api
-                .players()
-                .await?
-                .into_iter()
-                .find(|p| p.id == player && p.available)
-                .and_then(|p| p.volume)
-                .ok_or_else(|| anyhow::anyhow!("Player volume unavailable"))?;
-            api.control(
-                &player,
-                Control::Volume((current as i16 + delta as i16).clamp(0, 100) as u8),
-            )
-            .await
-        }
-        Action::Seek(delta) => {
-            let queue = api.queue(&player).await?;
-            if queue.duration <= 0.0 {
-                anyhow::bail!("This item has no seekable duration");
-            }
-            api.control(
-                &player,
-                Control::Seek((queue.elapsed + delta as f64).clamp(0.0, queue.duration)),
-            )
-            .await
-        }
+        // The interface resolves the target position, so holding the key does
+        // not issue a queue request per keystroke.
+        Action::Seek(position) => api.control(&player, Control::Seek(position)).await,
         Action::Play(uri) => api.play_uri(&player, &uri).await,
         Action::Enqueue(uri) => api.enqueue_uri(&player, &uri).await,
         Action::PlayNext(uri) => api.play_next_uri(&player, &uri).await,

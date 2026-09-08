@@ -4,6 +4,7 @@ use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     layout::{Constraint, Layout},
     style::Style,
+    text::Line,
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
     Frame,
 };
@@ -73,13 +74,104 @@ impl Prompt {
     }
 }
 
+/// One selectable action, grouped under a heading so a long menu stays
+/// readable.
+pub struct Entry {
+    pub section: &'static str,
+    pub label: String,
+    pub action: Action,
+}
+
+/// Headings in the order they are shown; entries keep their order within one.
+const SECTIONS: [&str; 8] = [
+    PLAYBACK, VOLUME, QUEUE, GROUPING, SOURCES, OPTIONS, SLEEP, MEDIA,
+];
+const PLAYBACK: &str = "Playback";
+const VOLUME: &str = "Volume";
+const QUEUE: &str = "Queue";
+const GROUPING: &str = "Grouping";
+const SOURCES: &str = "Sources and sound modes";
+const OPTIONS: &str = "Player options";
+const SLEEP: &str = "Sleep timer";
+const MEDIA: &str = "Media by URI";
+
 pub struct Menu {
     pub prompt: Option<Prompt>,
     pub error: String,
     pub player: Option<String>,
     pub title: String,
-    pub entries: Vec<(String, Action)>,
+    pub entries: Vec<Entry>,
+    /// Index into the entries the filter leaves visible, never into `entries`.
     pub cursor: usize,
+    pub filter: String,
+    pub filtering: bool,
+}
+
+impl Menu {
+    /// Entry indices matching the filter, case-insensitively.
+    pub fn visible(&self) -> Vec<usize> {
+        if self.filter.trim().is_empty() {
+            return (0..self.entries.len()).collect();
+        }
+        let needle = self.filter.trim().to_lowercase();
+        self.entries
+            .iter()
+            .enumerate()
+            .filter(|(_, entry)| {
+                entry.label.to_lowercase().contains(&needle)
+                    || entry.section.to_lowercase().contains(&needle)
+            })
+            .map(|(index, _)| index)
+            .collect()
+    }
+
+    /// The action the cursor is on, if the filter leaves one there.
+    pub fn selected(&self) -> Option<&Entry> {
+        self.visible()
+            .get(self.cursor)
+            .and_then(|index| self.entries.get(*index))
+    }
+
+    fn add(&mut self, section: &'static str, label: String, action: Action) {
+        self.entries.push(Entry {
+            section,
+            label,
+            action,
+        });
+    }
+
+    fn player_command(
+        &mut self,
+        section: &'static str,
+        label: String,
+        name: &'static str,
+        args: Value,
+    ) {
+        self.add(
+            section,
+            label,
+            Action::Command(Command::Player { name, args }),
+        );
+    }
+
+    fn queue_command(
+        &mut self,
+        section: &'static str,
+        id: &str,
+        label: String,
+        name: &'static str,
+        args: Value,
+    ) {
+        self.add(
+            section,
+            label,
+            Action::Command(Command::Queue {
+                id: id.to_owned(),
+                name,
+                args,
+            }),
+        );
+    }
 }
 
 impl Menu {
@@ -91,6 +183,8 @@ impl Menu {
             title: "Select a connected player first".into(),
             entries: vec![],
             cursor: 0,
+            filter: String::new(),
+            filtering: false,
         };
         let Some(player) = app
             .players
@@ -101,10 +195,6 @@ impl Menu {
         };
         menu.title = format!("Controls · {}", player.name);
         let p = &player.details;
-        let mut add_player = |label: String, name, args| {
-            menu.entries
-                .push((label, Action::Command(Command::Player { name, args })))
-        };
         for (label, name) in [
             ("Play / resume", "play"),
             ("Pause", "pause"),
@@ -112,20 +202,22 @@ impl Menu {
             ("Next track", "next"),
             ("Previous track", "previous"),
         ] {
-            add_player(label.into(), name, json!({}));
-        }
-        if let Some(muted) = p["volume_muted"].as_bool() {
-            add_player(
-                if muted { "Unmute" } else { "Mute" }.into(),
-                "volume_mute",
-                json!({"muted":!muted}),
-            );
+            menu.player_command(PLAYBACK, label.into(), name, json!({}));
         }
         if let Some(powered) = p["powered"].as_bool() {
-            add_player(
+            menu.player_command(
+                PLAYBACK,
                 if powered { "Power off" } else { "Power on" }.into(),
                 "power",
                 json!({"powered":!powered}),
+            );
+        }
+        if let Some(muted) = p["volume_muted"].as_bool() {
+            menu.player_command(
+                VOLUME,
+                if muted { "Unmute" } else { "Mute" }.into(),
+                "volume_mute",
+                json!({"muted":!muted}),
             );
         }
         for (label, name) in [
@@ -134,16 +226,17 @@ impl Menu {
             ("Group volume up", "group_volume_up"),
             ("Group volume down", "group_volume_down"),
         ] {
-            add_player(label.into(), name, json!({}));
+            menu.player_command(VOLUME, label.into(), name, json!({}));
         }
         if let Some(muted) = p["group_volume_muted"].as_bool() {
-            add_player(
+            menu.player_command(
+                VOLUME,
                 if muted { "Unmute group" } else { "Mute group" }.into(),
                 "group_volume_mute",
                 json!({"muted":!muted}),
             );
         }
-        add_player("Leave player group".into(), "ungroup", json!({}));
+        menu.player_command(GROUPING, "Leave player group".into(), "ungroup", json!({}));
         for target in app
             .players
             .iter()
@@ -153,7 +246,8 @@ impl Menu {
                 .as_array()
                 .is_some_and(|ids| ids.contains(&json!(target.id)))
             {
-                add_player(
+                menu.player_command(
+                    GROUPING,
                     format!("Join group led by {}", target.name),
                     "group",
                     json!({"target_player":target.id}),
@@ -163,7 +257,8 @@ impl Menu {
                 .as_array()
                 .is_some_and(|ids| ids.contains(&json!(target.id)))
             {
-                add_player(
+                menu.player_command(
+                    GROUPING,
                     format!("Remove {} from this group", target.name),
                     "set_members",
                     json!({"player_ids_to_remove":[target.id]}),
@@ -186,7 +281,8 @@ impl Menu {
                 .filter(|v| v["passive"] != true)
             {
                 if let Some(id) = item["id"].as_str() {
-                    add_player(
+                    menu.player_command(
+                        SOURCES,
                         format!("{label}: {}", clean(&item["name"])),
                         name,
                         json!({argument:id}),
@@ -205,14 +301,16 @@ impl Menu {
             };
             let label = clean(&option["name"]);
             if let Some(value) = option["value"].as_bool() {
-                add_player(
+                menu.player_command(
+                    OPTIONS,
                     format!("{label}: {}", !value),
                     "set_option",
                     json!({"option_key":key,"option_value":!value}),
                 );
             } else if let Some(options) = option["options"].as_array() {
                 for choice in options {
-                    add_player(
+                    menu.player_command(
+                        OPTIONS,
                         format!("{label}: {}", clean(&choice["name"])),
                         "set_option",
                         json!({"option_key":key,"option_value":choice["value"]}),
@@ -233,7 +331,8 @@ impl Menu {
                     } else {
                         json!(next)
                     };
-                    add_player(
+                    menu.player_command(
+                        OPTIONS,
                         format!("{label}: {next}"),
                         "set_option",
                         json!({"option_key":key,"option_value":next}),
@@ -242,34 +341,35 @@ impl Menu {
             }
         }
         for minutes in [15, 30, 60, 90] {
-            add_player(
+            menu.player_command(
+                SLEEP,
                 format!("Sleep timer: {minutes} minutes"),
                 "sleep_timer/set",
                 json!({"seconds":minutes*60}),
             );
         }
-        add_player("Cancel sleep timer".into(), "sleep_timer/clear", json!({}));
+        menu.player_command(
+            SLEEP,
+            "Cancel sleep timer".into(),
+            "sleep_timer/clear",
+            json!({}),
+        );
         if !app.queue_id.is_empty() {
             let q = &app.queue_details;
-            let mut add_queue = |label: String, name, args| {
-                menu.entries.push((
-                    label,
-                    Action::Command(Command::Queue {
-                        id: app.queue_id.clone(),
-                        name,
-                        args,
-                    }),
-                ))
-            };
+            let id = app.queue_id.as_str();
             if q["is_dynamic"] != true {
                 let shuffle = q["shuffle_enabled"].as_bool().unwrap_or(false);
-                add_queue(
+                menu.queue_command(
+                    QUEUE,
+                    id,
                     format!("Shuffle: {}", if shuffle { "off" } else { "on" }),
                     "shuffle",
                     json!({"shuffle_enabled":!shuffle}),
                 );
                 for mode in ["off", "one", "all"] {
-                    add_queue(
+                    menu.queue_command(
+                        QUEUE,
+                        id,
                         format!("Repeat: {mode}"),
                         "repeat",
                         json!({"repeat_mode":mode}),
@@ -281,33 +381,49 @@ impl Menu {
                 ("Crossfade", "crossfade_enabled", "crossfade"),
             ] {
                 if let Some(value) = q[field].as_bool() {
-                    add_queue(
+                    menu.queue_command(
+                        QUEUE,
+                        id,
                         format!("{label}: {}", if value { "off" } else { "on" }),
                         name,
                         json!({field:!value}),
                     );
                 }
             }
-            add_queue("Clear queue and stop playback".into(), "clear", json!({}));
+            menu.queue_command(
+                QUEUE,
+                id,
+                "Clear queue and stop playback".into(),
+                "clear",
+                json!({}),
+            );
             if let Some(item) = app.queue.get(app.queue_cursor).filter(|t| !t.id.is_empty()) {
-                add_queue(
+                menu.queue_command(
+                    QUEUE,
+                    id,
                     format!("Play queue item: {}", item.title),
                     "play_index",
                     json!({"index":item.id}),
                 );
-                add_queue(
+                menu.queue_command(
+                    QUEUE,
+                    id,
                     format!("Remove queue item: {}", item.title),
                     "delete_item",
                     json!({"item_id_or_index":item.id}),
                 );
                 for (label, shift) in [("Move up", -1), ("Move down", 1), ("Move to next", 0)] {
-                    add_queue(
+                    menu.queue_command(
+                        QUEUE,
+                        id,
                         format!("{label}: {}", item.title),
                         "move_item",
                         json!({"queue_item_id":item.id,"pos_shift":shift}),
                     );
                 }
-                add_queue(
+                menu.queue_command(
+                    QUEUE,
+                    id,
                     format!("Move to end: {}", item.title),
                     "move_item_end",
                     json!({"queue_item_id":item.id}),
@@ -320,7 +436,9 @@ impl Menu {
                     ("Add to queue", "add"),
                     ("Play immediately, keep queue", "play"),
                 ] {
-                    add_queue(
+                    menu.queue_command(
+                        QUEUE,
+                        id,
                         format!("{label}: {}", item.title),
                         "play_media",
                         json!({"media":item.uri,"option":option}),
@@ -332,7 +450,9 @@ impl Menu {
                 Some("audiobook" | "podcast_episode")
             ) {
                 for speed in [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0] {
-                    add_queue(
+                    menu.queue_command(
+                        QUEUE,
+                        id,
                         format!("Playback speed: {speed}x"),
                         "set_playback_speed",
                         json!({"speed":speed}),
@@ -344,7 +464,8 @@ impl Menu {
                 .iter()
                 .filter(|p| p.available && Some(&p.id) != app.selected_id.as_ref())
             {
-                menu.entries.push((
+                menu.add(
+                    QUEUE,
                     format!(
                         "Transfer queue/playback to {} (replaces destination)",
                         target.name
@@ -353,11 +474,12 @@ impl Menu {
                         source: app.queue_id.clone(),
                         target: target.id.clone(),
                     }),
-                ));
+                );
             }
         }
-        for (label, name, argument, min, max) in [
+        for (section, label, name, argument, min, max) in [
             (
+                VOLUME,
                 "Set volume (0–100)",
                 "volume_set",
                 "volume_level",
@@ -365,6 +487,7 @@ impl Menu {
                 100.0,
             ),
             (
+                VOLUME,
                 "Set group volume (0–100)",
                 "group_volume",
                 "volume_level",
@@ -372,6 +495,7 @@ impl Menu {
                 100.0,
             ),
             (
+                PLAYBACK,
                 "Seek to seconds (0–86400)",
                 "seek",
                 "position",
@@ -379,6 +503,7 @@ impl Menu {
                 86400.0,
             ),
             (
+                SLEEP,
                 "Sleep timer in seconds (1–86400)",
                 "sleep_timer/set",
                 "seconds",
@@ -387,6 +512,7 @@ impl Menu {
             ),
         ] {
             menu.input(
+                section,
                 label.into(),
                 Command::Player {
                     name,
@@ -409,6 +535,7 @@ impl Menu {
             if option["type"] == "string" {
                 if let Some(key) = option["key"].as_str() {
                     menu.input(
+                        OPTIONS,
                         format!("Set {}", clean(&option["name"])),
                         Command::Player {
                             name: "set_option",
@@ -427,6 +554,7 @@ impl Menu {
                 ("Play media URI next", "next"),
             ] {
                 menu.input(
+                    MEDIA,
                     label.into(),
                     Command::Queue {
                         id: app.queue_id.clone(),
@@ -438,20 +566,32 @@ impl Menu {
                 );
             }
         }
+        // Group the headings without disturbing the order inside each one.
+        menu.entries.sort_by_key(|entry| {
+            SECTIONS
+                .iter()
+                .position(|section| *section == entry.section)
+                .unwrap_or(SECTIONS.len())
+        });
         menu
     }
 
-    fn input(&mut self, label: String, command: Command, argument: &'static str, kind: InputKind) {
-        self.entries.push((
-            label.clone(),
-            Action::Prompt(Prompt {
-                label,
-                command,
-                argument,
-                kind,
-                value: String::new(),
-            }),
-        ));
+    fn input(
+        &mut self,
+        section: &'static str,
+        label: String,
+        command: Command,
+        argument: &'static str,
+        kind: InputKind,
+    ) {
+        let action = Action::Prompt(Prompt {
+            label: label.clone(),
+            command,
+            argument,
+            kind,
+            value: String::new(),
+        });
+        self.add(section, label, action);
     }
 }
 
@@ -502,21 +642,48 @@ pub fn key(app: &mut App, key: KeyEvent) -> Action {
         }
         return Action::None;
     }
+    // While filtering, text keys narrow the list; navigation and Enter still
+    // act on the selection, so the filter is a search box, not a mode switch.
+    if menu.filtering {
+        match key.code {
+            KeyCode::Esc => {
+                menu.filtering = false;
+                menu.filter.clear();
+                menu.cursor = 0;
+                return Action::None;
+            }
+            KeyCode::Backspace => {
+                menu.filter.pop();
+                menu.cursor = 0;
+                return Action::None;
+            }
+            KeyCode::Char(c) if !c.is_control() && menu.filter.len() < 64 => {
+                menu.filter.push(c);
+                menu.cursor = 0;
+                return Action::None;
+            }
+            _ => {}
+        }
+    } else if key.code == KeyCode::Char('/') {
+        menu.filtering = true;
+        return Action::None;
+    }
+    let last = menu.visible().len().saturating_sub(1);
     match key.code {
         KeyCode::Esc | KeyCode::Char('q') | KeyCode::F(1) => {
             app.menu = None;
         }
-        KeyCode::Down | KeyCode::Char('j') => {
-            menu.cursor = (menu.cursor + 1).min(menu.entries.len().saturating_sub(1))
-        }
+        KeyCode::Down | KeyCode::Char('j') => menu.cursor = (menu.cursor + 1).min(last),
         KeyCode::Up | KeyCode::Char('k') => menu.cursor = menu.cursor.saturating_sub(1),
-        KeyCode::PageDown => {
-            menu.cursor = (menu.cursor + 10).min(menu.entries.len().saturating_sub(1))
-        }
+        KeyCode::PageDown => menu.cursor = (menu.cursor + 10).min(last),
         KeyCode::PageUp => menu.cursor = menu.cursor.saturating_sub(10),
         KeyCode::Home => menu.cursor = 0,
-        KeyCode::End => menu.cursor = menu.entries.len().saturating_sub(1),
+        KeyCode::End => menu.cursor = last,
         KeyCode::Enter => {
+            // A filter matching nothing has nothing to apply: keep the menu.
+            if menu.selected().is_none() {
+                return Action::None;
+            }
             let action = if app.connected
                 && menu.player == app.selected_id
                 && app
@@ -524,9 +691,8 @@ pub fn key(app: &mut App, key: KeyEvent) -> Action {
                     .iter()
                     .any(|p| Some(&p.id) == menu.player.as_ref() && p.available)
             {
-                menu.entries
-                    .get(menu.cursor)
-                    .map(|(_, a)| a.clone())
+                menu.selected()
+                    .map(|entry| entry.action.clone())
                     .unwrap_or(Action::None)
             } else {
                 app.status = "Player disconnected; reopen controls after reconnecting".into();
@@ -575,23 +741,48 @@ pub fn draw(frame: &mut Frame, app: &App) {
         );
         return;
     }
+    let visible = menu.visible();
+    let heading = if menu.filtering {
+        format!("Filter: {}▏  [Esc clears · Enter applies]", menu.filter)
+    } else {
+        "↑↓/jk choose · / filter · PgUp/PgDn scroll · Enter applies · Esc returns".into()
+    };
     frame.render_widget(
         Paragraph::new(format!(
-            "MATUI · {}\n↑↓/jk choose · PgUp/PgDn scroll · Enter applies · Esc returns",
-            menu.title
+            "MATUI · {}\n{heading}\n{} of {} shown",
+            menu.title,
+            visible.len(),
+            menu.entries.len()
         )),
         rows[0],
     );
-    let mut state = ListState::default().with_selected(Some(menu.cursor));
+    // Headings are drawn as their own rows; the cursor only ever lands on an
+    // entry, so navigation never stops on one.
+    let mut items: Vec<ListItem> = Vec::with_capacity(visible.len() + SECTIONS.len());
+    let mut selected = None;
+    let mut section = "";
+    for (position, index) in visible.iter().enumerate() {
+        let entry = &menu.entries[*index];
+        if entry.section != section {
+            section = entry.section;
+            items.push(ListItem::new(Line::styled(
+                section.to_string(),
+                Style::default()
+                    .fg(palette.secondary)
+                    .add_modifier(ratatui::style::Modifier::BOLD),
+            )));
+        }
+        if position == menu.cursor {
+            selected = Some(items.len());
+        }
+        items.push(ListItem::new(Line::from(format!("  {}", entry.label))));
+    }
+    let mut state = ListState::default().with_selected(selected);
     frame.render_stateful_widget(
-        List::new(
-            menu.entries
-                .iter()
-                .map(|(label, _)| ListItem::new(label.as_str())),
-        )
-        .block(Block::default().borders(Borders::ALL))
-        .highlight_symbol("› ")
-        .highlight_style(Style::default().fg(palette.accent).bg(palette.selection)),
+        List::new(items)
+            .block(Block::default().borders(Borders::ALL))
+            .highlight_symbol("› ")
+            .highlight_style(Style::default().fg(palette.accent).bg(palette.selection)),
         rows[1],
         &mut state,
     );

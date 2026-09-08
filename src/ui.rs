@@ -1,5 +1,5 @@
 use ratatui::{
-    layout::{Constraint, Layout},
+    layout::{Constraint, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Gauge, List, ListItem, ListState, Paragraph},
@@ -26,14 +26,67 @@ pub enum Action {
     Toggle,
     Next,
     Previous,
-    Volume(i8),
-    Seek(i8),
+    /// Absolute position in seconds, resolved by the interface.
+    Seek(f64),
     Play(String),
     Enqueue(String),
     PlayNext(String),
 }
 
 impl App {
+    /// A queue mode change for the displayed queue. Dynamic queues report no
+    /// shuffle or repeat state, so the key says so rather than guessing.
+    fn queue_mode(&mut self, name: &'static str, args: serde_json::Value) -> Action {
+        if self.queue_id.is_empty() {
+            self.status = "No active queue for this player yet".into();
+            return Action::None;
+        }
+        if self.queue_details["is_dynamic"] == true {
+            self.status = "A dynamic queue has no shuffle or repeat setting".into();
+            return Action::None;
+        }
+        Action::Command(crate::controls::Command::Queue {
+            id: self.queue_id.clone(),
+            name,
+            args,
+        })
+    }
+
+    /// Seek relative to the position already on screen, so repeated presses
+    /// accumulate without a queue request each time. The next poll corrects it.
+    fn seek(&mut self, delta: f64) -> Action {
+        if !self.duration.is_finite() || self.duration <= 0.0 || !self.elapsed.is_finite() {
+            self.status = "This item has no seekable duration".into();
+            return Action::None;
+        }
+        self.elapsed = (self.elapsed + delta).clamp(0.0, self.duration);
+        Action::Seek(self.elapsed)
+    }
+
+    /// Why the visualizer has no samples, in terms of the selected speaker.
+    /// A remote speaker's audio never reaches this machine.
+    fn silence(&self) -> String {
+        let selected = self
+            .players
+            .iter()
+            .find(|p| Some(&p.id) == self.selected_id.as_ref());
+        let local = selected
+            .zip(self.local_endpoint.as_deref())
+            .is_some_and(|(p, endpoint)| crate::presentation::matches_endpoint(p, endpoint));
+        match selected {
+            Some(player) if local => format!(
+                "no local audio · this speaker is {}",
+                if player.state.is_empty() {
+                    "idle"
+                } else {
+                    player.state.as_str()
+                }
+            ),
+            Some(player) => format!("no local audio · playing on {}", player.name),
+            None => "no local audio · select Matui's own speaker".into(),
+        }
+    }
+
     /// Pasted text never becomes shortcuts, field navigation or submission.
     pub fn paste(&mut self, text: &str) {
         if let Some(settings) = &mut self.settings {
@@ -127,10 +180,18 @@ impl App {
             }
             KeyCode::F(4) => {
                 self.focus = Focus::Queue;
-                self.content = Focus::Queue;
                 Action::None
             }
             KeyCode::F(2) => Action::OpenSettings,
+            KeyCode::Char('v') => {
+                if self.spectrum.is_none() {
+                    self.status =
+                        "Visualizer needs Matui's own speaker: enable local audio (F2)".into();
+                } else {
+                    self.visualizer.mode = self.visualizer.mode.next();
+                }
+                Action::None
+            }
             KeyCode::Char('?') | KeyCode::F(1) => {
                 self.menu = Some(crate::controls::Menu::new(self));
                 Action::None
@@ -158,14 +219,26 @@ impl App {
                         Focus::Search => Focus::Players,
                     }
                 };
-                if self.focus != Focus::Players {
+                // Music and search share the right pane; the queue has its own.
+                if matches!(self.focus, Focus::Music | Focus::Search) {
                     self.content = self.focus;
                 }
                 Action::None
             }
+            KeyCode::Esc if self.visualizer.mode != crate::visualizer::Mode::Off => {
+                self.visualizer.mode = crate::visualizer::Mode::Off;
+                Action::None
+            }
             KeyCode::Esc => {
-                self.focus = Focus::Queue;
-                self.content = Focus::Queue;
+                match self.focus {
+                    // Leave search results for the browser they came from.
+                    Focus::Search => {
+                        self.focus = Focus::Music;
+                        self.content = Focus::Music;
+                    }
+                    Focus::Music if !self.music.history.is_empty() => self.music.back(),
+                    _ => {}
+                }
                 Action::None
             }
             KeyCode::Down
@@ -224,13 +297,29 @@ impl App {
             {
                 Action::None
             }
-            KeyCode::Char(' ') => Action::Toggle,
-            KeyCode::Char('n') => Action::Next,
-            KeyCode::Char('p') => Action::Previous,
+            KeyCode::Char(' ') | KeyCode::Char('p') => Action::Toggle,
+            KeyCode::Char('n') | KeyCode::Char('>') | KeyCode::Char('.') => Action::Next,
+            KeyCode::Char('<') | KeyCode::Char(',') => Action::Previous,
             KeyCode::Char('s') => Action::Command(crate::controls::Command::Player {
                 name: "stop",
                 args: serde_json::json!({}),
             }),
+            // z and l keep shuffle and repeat off any shifted pair.
+            KeyCode::Char('z') => self.queue_mode(
+                "shuffle",
+                serde_json::json!({
+                    "shuffle_enabled": self.queue_details["shuffle_enabled"] != true
+                }),
+            ),
+            KeyCode::Char('l') => {
+                // off → all → one → off, matching the controls menu's modes.
+                let next = match self.queue_details["repeat_mode"].as_str() {
+                    Some("all") => "one",
+                    Some("one") => "off",
+                    _ => "all",
+                };
+                self.queue_mode("repeat", serde_json::json!({ "repeat_mode": next }))
+            }
             KeyCode::Char('m') => {
                 let muted = self
                     .players
@@ -246,10 +335,21 @@ impl App {
                     })
                     .unwrap_or(Action::None)
             }
-            KeyCode::Char('+') | KeyCode::Char('=') => Action::Volume(5),
-            KeyCode::Char('-') => Action::Volume(-5),
-            KeyCode::Left => Action::Seek(-10),
-            KeyCode::Right => Action::Seek(10),
+            KeyCode::Char('+') | KeyCode::Char('=') | KeyCode::Char('-') => {
+                Action::Command(crate::controls::Command::Player {
+                    name: if key.code == KeyCode::Char('-') {
+                        "volume_down"
+                    } else {
+                        "volume_up"
+                    },
+                    args: serde_json::json!({}),
+                })
+            }
+            KeyCode::Left | KeyCode::Right => self.seek(if key.code == KeyCode::Left {
+                -10.0
+            } else {
+                10.0
+            }),
             KeyCode::Enter | KeyCode::Delete | KeyCode::Char('J') | KeyCode::Char('K')
                 if self.focus == Focus::Queue =>
             {
@@ -339,6 +439,12 @@ pub enum Focus {
 
 pub struct App {
     pub music: crate::music::Browser,
+    /// Decoded local samples, when Matui itself is a speaker this run.
+    pub spectrum: Option<crate::visualizer::Analyzer>,
+    pub visualizer: crate::visualizer::Meter,
+    /// Persistent identity of Matui's own endpoint, for explaining an empty
+    /// visualizer when a different speaker is selected.
+    pub local_endpoint: Option<String>,
     pub content: Focus,
     pub menu: Option<crate::controls::Menu>,
     pub queue_id: String,
@@ -370,6 +476,9 @@ impl Default for App {
     fn default() -> Self {
         Self {
             music: crate::music::Browser::default(),
+            spectrum: None,
+            visualizer: crate::visualizer::Meter::default(),
+            local_endpoint: None,
             content: Focus::Music,
             menu: None,
             queue_id: String::new(),
@@ -426,9 +535,15 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         );
         return;
     }
+    if app.visualizer.mode == crate::visualizer::Mode::Full {
+        draw_visualizer(frame, app, area);
+        return;
+    }
+    // Chrome is two header rows, four for now playing, three for status and
+    // two for hints; everything else belongs to the lists.
     let rows = Layout::vertical([
-        Constraint::Length(3),
-        Constraint::Length(5),
+        Constraint::Length(2),
+        Constraint::Length(4),
         Constraint::Min(3),
         Constraint::Length(3),
         Constraint::Length(2),
@@ -457,40 +572,160 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         ),
         rows[0],
     );
-    let now = Layout::vertical([Constraint::Length(3), Constraint::Length(2)]).split(rows[1]);
-    frame.render_widget(
-        Paragraph::new(vec![
-            Line::styled(
-                format!("  {}", app.title),
-                Style::default().add_modifier(Modifier::BOLD),
-            ),
-            Line::styled(
-                format!("  {}", app.artist),
-                Style::default().fg(palette.secondary),
-            ),
-        ])
-        .block(Block::default().title(" NOW PLAYING ")),
-        now[0],
-    );
-    let ratio = if app.duration > 0.0 && app.elapsed.is_finite() && app.duration.is_finite() {
-        (app.elapsed / app.duration).clamp(0.0, 1.0)
+    draw_now_playing(frame, app, rows[1]);
+
+    let cols =
+        Layout::horizontal([Constraint::Percentage(35), Constraint::Percentage(65)]).split(rows[2]);
+    // Players are few and short; the queue takes the rest of the column so it
+    // stays visible while browsing.
+    let listed = (app.players.len() * 2 + 2) as u16;
+    let side = Layout::vertical([
+        Constraint::Length(listed.clamp(4, (cols[0].height / 2).max(4))),
+        Constraint::Min(3),
+    ])
+    .split(cols[0]);
+    draw_players(frame, app, side[0]);
+    draw_queue(frame, app, side[1]);
+    if app.visualizer.mode == crate::visualizer::Mode::Panel {
+        draw_spectrum_panel(frame, app, cols[1]);
+    } else if app.content == Focus::Search || app.focus == Focus::Search || app.editing {
+        draw_search(frame, app, cols[1]);
     } else {
-        0.0
+        crate::music::draw(frame, app, cols[1]);
+    }
+
+    let message = if app.editing {
+        format!("Search: {}▏  [Enter: submit · Esc: cancel]", app.query)
+    } else {
+        format!("{}\n{}", app.status, app.audio_status)
     };
     frame.render_widget(
-        Gauge::default()
-            .ratio(ratio)
-            .gauge_style(Style::default().fg(palette.accent).bg(palette.selection))
-            .label(format!(
-                "{} / {}",
-                duration(app.elapsed),
-                duration(app.duration)
-            )),
-        now[1],
+        Paragraph::new(message).block(
+            Block::default()
+                .borders(Borders::TOP)
+                .border_style(Style::default().fg(palette.secondary)),
+        ),
+        rows[3],
     );
-    let cols =
-        Layout::horizontal([Constraint::Percentage(30), Constraint::Percentage(70)]).split(rows[2]);
-    let player_items: Vec<ListItem> = app
+    frame.render_widget(
+        Paragraph::new(format!("{}\n{}", hints(app), TRANSPORT_HINTS))
+            .style(Style::default().fg(palette.secondary)),
+        rows[4],
+    );
+}
+
+/// Keys for the focused pane. The transport line below it never changes.
+fn hints(app: &App) -> &'static str {
+    if app.editing {
+        return "Enter submits the search · Esc cancels";
+    }
+    match app.focus {
+        Focus::Players => "Enter select speaker · ↑↓ move · Tab pane · b music · / search · F2 settings",
+        Focus::Queue => "Enter play item · Delete remove · Shift-J/K move · Tab pane · b music",
+        Focus::Music => {
+            "Enter open · P play collection · a add · N play next · Backspace back · ] page · r reload"
+        }
+        Focus::Search => "Enter play · a add · N play next · / new search · Esc back to music",
+    }
+}
+
+// Kept to 102 columns so it survives a narrow terminal; everything else lives
+// in the controls menu.
+const TRANSPORT_HINTS: &str = "Space/p pause · </> track · s stop · +/- vol · m mute · z shuffle · l repeat · v spectrum · ? all keys";
+
+/// Title, artist, transport state and progress, in four rows.
+fn draw_now_playing(frame: &mut Frame, app: &App, area: Rect) {
+    let palette = app.palette;
+    let rows = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+    ])
+    .split(area);
+    frame.render_widget(
+        Paragraph::new(format!("  {}", app.title))
+            .style(Style::default().add_modifier(Modifier::BOLD)),
+        rows[0],
+    );
+    frame.render_widget(
+        Paragraph::new(format!("  {}", app.artist)).style(Style::default().fg(palette.secondary)),
+        rows[1],
+    );
+    // The state line answers what the header used to leave to other panes:
+    // whether it is playing, how loud, and how the queue is ordered.
+    let player = app
+        .players
+        .iter()
+        .find(|p| Some(&p.id) == app.selected_id.as_ref());
+    let mut facts: Vec<String> = Vec::new();
+    match player {
+        Some(p) if !p.available => facts.push("unavailable".into()),
+        Some(p) => {
+            facts.push(if p.state.is_empty() {
+                "idle".into()
+            } else {
+                p.state.clone()
+            });
+            if let Some(volume) = p.volume {
+                facts.push(format!("vol {volume}%"));
+            }
+            if p.details["volume_muted"] == true {
+                facts.push("muted".into());
+            }
+        }
+        None => facts.push("no speaker selected".into()),
+    }
+    if !app.queue_id.is_empty() && app.queue_details["is_dynamic"] != true {
+        facts.push(format!(
+            "shuffle {}",
+            if app.queue_details["shuffle_enabled"] == true {
+                "on"
+            } else {
+                "off"
+            }
+        ));
+        facts.push(format!(
+            "repeat {}",
+            match app.queue_details["repeat_mode"].as_str() {
+                Some("all") => "all",
+                Some("one") => "one",
+                _ => "off",
+            }
+        ));
+    }
+    let state = Layout::horizontal([Constraint::Min(10), Constraint::Length(16)]).split(rows[2]);
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled(
+                format!("  {} ", transport(player.map_or("", |p| p.state.as_str()))),
+                Style::default().fg(palette.accent),
+            ),
+            Span::raw(facts.join(" · ")),
+        ])),
+        state[0],
+    );
+    frame.render_widget(
+        Paragraph::new(format!(
+            "{} / {}  ",
+            duration(app.elapsed),
+            duration(app.duration)
+        ))
+        .alignment(ratatui::layout::Alignment::Right),
+        state[1],
+    );
+    frame.render_widget(
+        Gauge::default()
+            .ratio(progress(app))
+            .gauge_style(Style::default().fg(palette.accent).bg(palette.selection))
+            .label(""),
+        rows[3],
+    );
+}
+
+fn draw_players(frame: &mut Frame, app: &App, area: Rect) {
+    let palette = app.palette;
+    let items: Vec<ListItem> = app
         .players
         .iter()
         .map(|p| {
@@ -517,7 +752,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
             .then_some(app.player_cursor.min(app.players.len().saturating_sub(1))),
     );
     frame.render_stateful_widget(
-        List::new(player_items)
+        List::new(items)
             .block(panel(
                 palette,
                 " PLAYERS · Enter to select ",
@@ -525,93 +760,223 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
             ))
             .highlight_style(Style::default().bg(palette.selection).fg(palette.accent))
             .highlight_symbol("› "),
-        cols[0],
+        area,
         &mut state,
     );
-    if app.content == Focus::Music && !app.editing {
-        crate::music::draw(frame, app, cols[1]);
-    } else {
-        let search = app.content == Focus::Search || app.focus == Focus::Search || app.editing;
-        let tracks = if search { &app.results } else { &app.queue };
-        let cursor = if search {
-            app.search_cursor
-        } else {
-            app.queue_cursor
-        };
-        let title = if search {
-            format!(" SEARCH · {} results ", tracks.len())
-        } else {
-            let shuffle = if app.queue_details["shuffle_enabled"] == true {
-                "on"
+}
+
+/// Track rows shared by the queue and search panes.
+fn track_items<'a>(tracks: &'a [TrackView], palette: Palette, numbered: bool) -> Vec<ListItem<'a>> {
+    tracks
+        .iter()
+        .enumerate()
+        .map(|(index, track)| {
+            let position = if numbered {
+                format!("{:>3}  ", index + 1)
             } else {
-                "off"
+                String::new()
             };
-            let repeat = match app.queue_details["repeat_mode"].as_str() {
-                Some("all") => "all",
-                Some("one") => "one",
-                _ => "off",
-            };
-            format!(
-                " QUEUE · {} items · shuffle {shuffle} · repeat {repeat} ",
-                tracks.len()
-            )
-        };
-        let items: Vec<ListItem> = tracks
-            .iter()
-            .enumerate()
-            .map(|(i, t)| {
-                ListItem::new(vec![
-                    Line::from(format!(
-                        "{:>3}  {}  {}",
-                        i + 1,
-                        t.title,
-                        duration(t.duration)
-                    )),
-                    Line::styled(
-                        format!("     {}", t.artist),
-                        Style::default().fg(palette.secondary),
-                    ),
-                ])
-            })
-            .collect();
-        if tracks.is_empty() {
-            frame.render_widget(
-                Paragraph::new(if search {
-                    "  / search for tracks across providers"
-                } else {
-                    "  Queue is empty or not loaded"
-                })
-                .block(panel(palette, &title, app.focus != Focus::Players)),
-                cols[1],
-            );
-        } else {
-            let mut state = ListState::default()
-                .with_selected(Some(cursor.min(tracks.len().saturating_sub(1))));
-            frame.render_stateful_widget(
-                List::new(items)
-                    .block(panel(palette, &title, app.focus != Focus::Players))
-                    .highlight_style(Style::default().bg(palette.selection))
-                    .highlight_symbol("› "),
-                cols[1],
-                &mut state,
-            );
-        }
+            ListItem::new(vec![
+                Line::from(format!(
+                    "{position}{}  {}",
+                    track.title,
+                    duration(track.duration)
+                )),
+                Line::styled(
+                    format!("{}{}", " ".repeat(position.len()), track.artist),
+                    Style::default().fg(palette.secondary),
+                ),
+            ])
+        })
+        .collect()
+}
+
+fn draw_list(
+    frame: &mut Frame,
+    area: Rect,
+    block: Block,
+    items: Vec<ListItem>,
+    cursor: usize,
+    palette: Palette,
+    empty: &str,
+) {
+    if items.is_empty() {
+        frame.render_widget(Paragraph::new(empty).block(block), area);
+        return;
     }
-    let message = if app.editing {
-        format!("Search: {}▏  [Enter: submit · Esc: cancel]", app.query)
+    let mut state =
+        ListState::default().with_selected(Some(cursor.min(items.len().saturating_sub(1))));
+    frame.render_stateful_widget(
+        List::new(items)
+            .block(block)
+            .highlight_style(Style::default().bg(palette.selection))
+            .highlight_symbol("› "),
+        area,
+        &mut state,
+    );
+}
+
+fn draw_queue(frame: &mut Frame, app: &App, area: Rect) {
+    let palette = app.palette;
+    let title = format!(" QUEUE · {} ", count(app.queue.len(), "item"));
+    draw_list(
+        frame,
+        area,
+        panel(palette, &title, app.focus == Focus::Queue),
+        track_items(&app.queue, palette, true),
+        app.queue_cursor,
+        palette,
+        "  Queue is empty or not loaded",
+    );
+}
+
+fn draw_search(frame: &mut Frame, app: &App, area: Rect) {
+    let palette = app.palette;
+    let title = format!(" SEARCH · {} ", count(app.results.len(), "result"));
+    draw_list(
+        frame,
+        area,
+        panel(palette, &title, app.focus == Focus::Search || app.editing),
+        track_items(&app.results, palette, false),
+        app.search_cursor,
+        palette,
+        "  / search for tracks across providers",
+    );
+}
+
+fn progress(app: &App) -> f64 {
+    if app.duration > 0.0 && app.elapsed.is_finite() && app.duration.is_finite() {
+        (app.elapsed / app.duration).clamp(0.0, 1.0)
     } else {
-        format!("{}\n{}", app.status, app.audio_status)
-    };
+        0.0
+    }
+}
+
+fn transport(state: &str) -> &'static str {
+    match state {
+        "playing" => "▶",
+        "paused" => "⏸",
+        _ => "■",
+    }
+}
+
+/// Advance the visualizer for this frame and report why it is empty when it
+/// is. Bars are only ever drawn from decoded samples this process is playing.
+fn spectrum(app: &mut App, width: u16) -> Option<String> {
+    let (bars, _, _) = crate::visualizer::columns(width);
+    let now = std::time::Instant::now();
+    let captured = app.spectrum.as_ref().map(|analyzer| analyzer.capture(now));
+    app.visualizer.update(
+        match captured {
+            Some(Ok(bands)) => Some(bands),
+            _ => None,
+        },
+        bars,
+        now,
+    );
+    match captured {
+        Some(Ok(_)) => None,
+        Some(Err("no local audio")) => Some(app.silence()),
+        Some(Err(reason)) => Some(reason.into()),
+        None => Some("local audio is off · Matui is not a speaker this run".into()),
+    }
+}
+
+/// The visualizer replacing the browser/queue pane.
+fn draw_spectrum_panel(frame: &mut Frame, app: &mut App, area: Rect) {
+    let palette = app.palette;
+    let block = panel(palette, " SPECTRUM · Matui's own output ", true);
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let rows = Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).split(inner);
+    let reason = spectrum(app, rows[0].width);
+    crate::visualizer::render(frame, rows[0], palette, &app.visualizer, reason.as_deref());
     frame.render_widget(
-        Paragraph::new(message).block(
-            Block::default()
-                .borders(Borders::TOP)
-                .border_style(Style::default().fg(palette.secondary)),
-        ),
+        Paragraph::new(ruler(app, rows[1].width, reason.is_some()))
+            .style(Style::default().fg(palette.secondary)),
+        rows[1],
+    );
+}
+
+fn ruler(app: &App, width: u16, empty: bool) -> String {
+    let rate = app.spectrum.as_ref().map_or(0, |a| a.rate());
+    if empty || rate == 0 {
+        return String::new();
+    }
+    crate::visualizer::scale(width, rate)
+}
+
+/// The whole terminal: bars over a compact now-playing line.
+fn draw_visualizer(frame: &mut Frame, app: &mut App, area: Rect) {
+    let palette = app.palette;
+    let rows = Layout::vertical([
+        Constraint::Min(3),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+    ])
+    .split(area);
+    let reason = spectrum(app, rows[0].width);
+    crate::visualizer::render(frame, rows[0], palette, &app.visualizer, reason.as_deref());
+    frame.render_widget(
+        Paragraph::new(ruler(app, rows[1].width, reason.is_some()))
+            .style(Style::default().fg(palette.secondary)),
+        rows[1],
+    );
+    let state = app
+        .players
+        .iter()
+        .find(|p| Some(&p.id) == app.selected_id.as_ref());
+    let head = Layout::horizontal([Constraint::Min(10), Constraint::Length(16)]).split(rows[2]);
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled(
+                format!(" {} ", transport(state.map_or("", |p| p.state.as_str()))),
+                Style::default().fg(palette.accent),
+            ),
+            Span::styled(
+                app.title.clone(),
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
+        ])),
+        head[0],
+    );
+    frame.render_widget(
+        Paragraph::new(format!(
+            "{} / {} ",
+            duration(app.elapsed),
+            duration(app.duration)
+        ))
+        .alignment(ratatui::layout::Alignment::Right),
+        head[1],
+    );
+    frame.render_widget(
+        Paragraph::new(format!(
+            "   {}{}",
+            app.artist,
+            state
+                .and_then(|p| p.volume)
+                .map_or(String::new(), |v| format!("  ·  vol {v}%"))
+        ))
+        .style(Style::default().fg(palette.secondary)),
         rows[3],
     );
-    frame.render_widget(Paragraph::new("b/F3 music · / search · Enter open/choose · P play collection · a add · N next · Backspace back · ] page\nTab pane · Esc/F4 queue · Space pause · +/- volume · F2 settings · ? controls · q quit")
-        .style(Style::default().fg(palette.secondary)), rows[4]);
+    frame.render_widget(
+        Gauge::default()
+            .ratio(progress(app))
+            .gauge_style(Style::default().fg(palette.accent).bg(palette.selection))
+            .label(""),
+        rows[4],
+    );
+    frame.render_widget(
+        Paragraph::new(
+            "v panel · Esc close · Space/p pause · </> track · +/- vol · z shuffle · ? all keys",
+        )
+        .style(Style::default().fg(palette.secondary)),
+        rows[5],
+    );
 }
 
 fn panel(palette: Palette, title: &str, active: bool) -> Block<'_> {
@@ -623,6 +988,10 @@ fn panel(palette: Palette, title: &str, active: bool) -> Block<'_> {
         } else {
             palette.secondary
         }))
+}
+
+fn count(n: usize, noun: &str) -> String {
+    format!("{n} {noun}{}", if n == 1 { "" } else { "s" })
 }
 
 pub fn duration(seconds: f64) -> String {

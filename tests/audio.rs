@@ -254,7 +254,7 @@ async fn explicit_missing_device_fails_without_connecting_or_falling_back() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let mut config = config(format!("http://{}", listener.local_addr().unwrap()));
     config.device_id = Some("offline-fixture-missing-device".into());
-    let mut handle = audio::start(config).unwrap();
+    let mut handle = audio::start(config, None).unwrap();
     tokio::time::timeout(Duration::from_secs(2), async {
         loop {
             if handle.status.borrow().state == "failed" {

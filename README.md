@@ -96,6 +96,12 @@ credentials or audio. URL userinfo, query strings and fragments are rejected.
 
 ## Playback and player controls
 
+The screen keeps the players and the queue in the left column and the music
+browser or search results on the right, so the queue stays visible while you
+browse. The header shows the track, transport state, volume, mute and the
+queue's shuffle/repeat setting. The bottom two lines are the keys for the
+focused pane and the transport keys.
+
 Select a speaker with Enter, then browse the **Music** pane. It opens with
 playlists, albums, artists, tracks, radio, favorite tracks and provider browsing.
 Enter opens a collection or folder; on a track it offers **Play now (replace
@@ -105,13 +111,14 @@ Browsing works before selecting a speaker and does not start playback.
 
 | Key | Action |
 | --- | --- |
-| Tab / Shift-Tab | Cycle players, music, queue and search panes |
+| Tab / Shift-Tab | Cycle players, queue, music and search panes |
 | Up/Down or j/k | Move highlighted row |
 | Enter in players | Select a player without starting playback |
-| Space | Play/pause selected player's MA queue |
-| n / p | Next / previous queue item |
+| Space or p | Play/pause selected player's MA queue |
+| < / > | Previous / next queue item (n also moves to the next) |
 | s / m | Stop / mute selected player |
-| + / - | Volume up/down 5 points |
+| z / l | Toggle shuffle / cycle repeat off→all→one |
+| + / - | Volume up/down (the server chooses the step) |
 | Left / Right | Seek backward/forward 10 seconds |
 | / | Search; Enter submits, Esc cancels |
 | b / F3 | Open music browser |
@@ -120,13 +127,15 @@ Browsing works before selecting a speaker and does not start playback.
 | a / N in music/search | Add to queue / play next |
 | Backspace in music | Go back, restoring the previous selection |
 | ] in music | Next library page (100 items per page) |
-| Esc / F4 | Open queue |
+| F4 | Focus the queue pane |
+| Esc | Close the visualizer, leave search, or go back in the browser |
 | Enter in queue | Play highlighted existing queue item |
 | Delete in queue | Remove highlighted item |
 | Shift-J / Shift-K in queue | Move item down/up |
+| v | Visualizer: spectrum panel, then full screen, then off |
 | ? / F1 | Open playback/player controls |
 | F2 | Connection settings (temporarily disconnects local speaker) |
-| r | Reload music listing, or refresh player/queue state in other panes |
+| r | Reload the music listing, or refresh player/queue state in other panes |
 | q / Ctrl-C | Quit and restore terminal |
 
 The controls menu includes direct player transport (including external sources),
@@ -134,14 +143,32 @@ mute, power, individual/group volume, absolute seek, sleep timers, compatible
 player grouping, ungrouping, source/sound-mode selection and writable player
 options. Queue controls include shuffle/repeat, autoplay/crossfade when reported,
 play/remove/reorder/clear, playback transfer, and audiobook/podcast playback speed.
-Numeric controls and media URIs have input screens. Enter applies the selected
-menu action; Esc returns. Page Up/Down and Home/End navigate long lists.
+Numeric controls and media URIs have input screens. Entries are grouped under
+headings — playback, volume, queue, grouping, sources, player options, sleep
+timer and media URIs — and **/** filters them by label or heading; Esc clears
+the filter, then closes the menu. Enter applies the selected menu action.
+Page Up/Down and Home/End navigate long lists.
 
 Search includes tracks, albums, artists, playlists, radio, audiobooks and podcasts
 (up to 50 results per type). Album and playlist results open their tracks; artists
 open albums and a top-tracks folder. Provider folders can expose music outside
 your saved library. Empty or failed listings offer back/search/retry guidance.
 The controls menu also accepts media URIs for playback and queueing.
+
+### Visualizer
+
+**v** cycles a spectrum display: a panel in place of the browser, then a
+full-screen view over the track and progress line, then off. Esc closes it.
+Transport keys keep working in both.
+
+The bars are a live analysis of the audio Matui itself is playing through the
+local speaker. A remote speaker's audio never passes through this computer, so
+there is nothing to analyze then and nothing is invented: the view says which
+speaker is playing instead. Muted output reads as silence. Bar height follows
+the decoded stream, not a measurement of the output device, and the display is
+aligned to when Matui is scheduled to emit each sample — device buffering and
+acoustic latency are not measured. The visualizer needs local audio enabled
+(F2 settings); without it, **v** explains rather than opening an empty view.
 
 Controls target the selected player. Group queue ownership is resolved separately
 from player volume. Queue item edits retain the displayed queue identity and are

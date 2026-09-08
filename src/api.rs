@@ -45,7 +45,6 @@ pub enum Control {
     Toggle,
     Next,
     Previous,
-    Volume(u8),
     Seek(f64),
 }
 #[derive(Clone)]
@@ -289,22 +288,12 @@ impl ApiClient {
         })
     }
     pub async fn control(&self, player_id: &str, action: Control) -> Result<()> {
-        match action {
-            Control::Volume(v) if v > 100 => {
-                return Err(anyhow!("Volume must be between 0 and 100"))
+        // Volume is a player command (`players/cmd/volume_*`), not a queue
+        // control; it goes through `playback_command`.
+        if let Control::Seek(v) = action {
+            if !v.is_finite() || v < 0.0 || v >= u64::MAX as f64 {
+                return Err(anyhow!("Seek position must be finite and nonnegative"));
             }
-            Control::Seek(v) if !v.is_finite() || v < 0.0 || v >= u64::MAX as f64 => {
-                return Err(anyhow!("Seek position must be finite and nonnegative"))
-            }
-            _ => {}
-        }
-        if let Control::Volume(volume) = action {
-            self.command(
-                "players/cmd/volume_set",
-                json!({"player_id":player_id,"volume_level":volume}),
-            )
-            .await?;
-            return Ok(());
         }
         let q = self.active_queue(player_id).await?;
         let id = text(&q, "queue_id");
@@ -316,7 +305,6 @@ impl ApiClient {
                 "player_queues/seek",
                 json!({"queue_id":id,"position":position as u64}),
             ),
-            Control::Volume(_) => unreachable!(),
         };
         self.command(command, args).await?;
         Ok(())

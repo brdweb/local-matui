@@ -12,3 +12,4 @@ pub mod settings;
 pub mod terminal_ui;
 pub mod theme;
 pub mod ui;
+pub mod visualizer;

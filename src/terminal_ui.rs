@@ -80,7 +80,14 @@ pub fn run(
             theme_check = std::time::Instant::now();
         }
         terminal.draw(|frame| ui::draw(frame, &mut app))?;
-        if event::poll(Duration::from_millis(50))? {
+        // The visualizer is the only view that animates; it is worth redrawing
+        // at about 60 per second while it is open, and no more otherwise.
+        let interval = if app.visualizer.mode == crate::visualizer::Mode::Off {
+            Duration::from_millis(50)
+        } else {
+            Duration::from_millis(16)
+        };
+        if event::poll(interval)? {
             let action = match event::read()? {
                 event::Event::Key(key) => app.key(key),
                 event::Event::Paste(text) => {

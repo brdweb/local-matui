@@ -240,6 +240,15 @@ impl Gain {
         }
     }
 }
+/// Receives decoded samples that are about to be played, with the local
+/// instant the output is scheduled to emit them. Declared here so the audio
+/// module does not depend on the interface; only real device output has one.
+pub trait SampleSink: Send + Sync + 'static {
+    fn push(&self, samples: &[i32], channels: u8, rate: u32, emitted: std::time::Instant);
+    fn set_muted(&self, muted: bool);
+    fn clear(&self);
+}
+
 // Constructed and destroyed on the audio thread; no Send requirement on CPAL.
 pub(crate) trait Output: 'static {
     fn formats(&self) -> Result<Vec<AudioFormatSpec>>;
@@ -658,9 +667,12 @@ fn enumerate_devices() -> Result<Vec<(cpal::Device, AudioDevice)>> {
     }
     Ok(found)
 }
-pub fn start(config: AudioConfig) -> Result<AudioHandle> {
+/// `spectrum` receives what this endpoint plays, for the interface visualizer.
+pub fn start(config: AudioConfig, spectrum: Option<Arc<dyn SampleSink>>) -> Result<AudioHandle> {
     let device_id = config.device_id.clone();
-    start_with_output(config, move || DeviceOutput::new(device_id.as_deref()))
+    start_with_output(config, move || {
+        DeviceOutput::new(device_id.as_deref(), spectrum)
+    })
 }
 
 pub(crate) fn formats_for_ranges(ranges: &[(u16, u32, u32)]) -> Vec<AudioFormatSpec> {
@@ -769,6 +781,9 @@ impl QueueBudget {
 
 struct DeviceOutput {
     device: cpal::Device,
+    // Decoded samples are copied here for the visualizer, tagged with the
+    // instant the synchronized player is scheduled to emit them.
+    spectrum: Option<Arc<dyn SampleSink>>,
     formats: Vec<AudioFormatSpec>,
     player: Option<SyncedPlayer>,
     clock: Option<SharedClock>,
@@ -778,7 +793,7 @@ struct DeviceOutput {
     failed: Option<&'static str>,
 }
 impl DeviceOutput {
-    fn new(id: Option<&str>) -> Result<Self> {
+    fn new(id: Option<&str>, spectrum: Option<Arc<dyn SampleSink>>) -> Result<Self> {
         let device = if let Some(id) = id {
             enumerate_devices()?
                 .into_iter()
@@ -808,6 +823,7 @@ impl DeviceOutput {
         }
         Ok(Self {
             device,
+            spectrum,
             formats,
             player: None,
             clock: None,
@@ -836,6 +852,9 @@ impl Output for DeviceOutput {
         player.set_static_delay(gain.delay);
         self.player = Some(player);
         self.clock = Some(clock);
+        if let Some(spectrum) = &self.spectrum {
+            spectrum.set_muted(gain.muted);
+        }
         Ok(())
     }
     fn write(&mut self, buffer: AudioBuffer) {
@@ -873,6 +892,21 @@ impl Output for DeviceOutput {
         if when + duration < now {
             return;
         }
+        // Sendspin emits each sample `static_delay_ms` early so downstream
+        // latency lands it on time, and the budget above measures the same
+        // instant. Analyze against that scheduled emission; it is not a
+        // measurement of device buffering or acoustic output.
+        if let (Some(spectrum), Some(emitted)) = (
+            &self.spectrum,
+            when.checked_sub(Duration::from_millis(player.static_delay_ms().into())),
+        ) {
+            spectrum.push(
+                &buffer.samples,
+                buffer.format.channels,
+                buffer.format.sample_rate,
+                emitted,
+            );
+        }
         player.enqueue(buffer);
     }
     fn clear(&mut self) {
@@ -882,8 +916,14 @@ impl Output for DeviceOutput {
         }
         self.clock = None;
         self.queued = QueueBudget::default();
+        if let Some(spectrum) = &self.spectrum {
+            spectrum.clear();
+        }
     }
     fn gain(&mut self, gain: Gain) {
+        if let Some(spectrum) = &self.spectrum {
+            spectrum.set_muted(gain.muted);
+        }
         if let Some(player) = &self.player {
             player.set_volume(gain.volume);
             player.set_mute(gain.muted);
@@ -893,6 +933,10 @@ impl Output for DeviceOutput {
                 player.clear();
                 player.set_static_delay(gain.delay);
                 self.queued = QueueBudget::default();
+                // A delay change moves every scheduled emission instant.
+                if let Some(spectrum) = &self.spectrum {
+                    spectrum.clear();
+                }
             }
             self.queued.set_delay(player.static_delay_ms());
         }
@@ -933,10 +977,30 @@ pub(crate) fn proxy_url(base: &str) -> Result<url::Url> {
 mod device_output_tests {
     use super::*;
 
+    /// Records what the output hands to the visualizer, without depending on
+    /// the analyzer itself.
+    #[derive(Default)]
+    struct RecordingSink {
+        chunks: parking_lot::Mutex<Vec<(usize, u8, u32, std::time::Instant)>>,
+        cleared: AtomicU64,
+    }
+    impl SampleSink for RecordingSink {
+        fn push(&self, samples: &[i32], channels: u8, rate: u32, emitted: std::time::Instant) {
+            self.chunks
+                .lock()
+                .push((samples.len(), channels, rate, emitted));
+        }
+        fn set_muted(&self, _muted: bool) {}
+        fn clear(&self) {
+            self.cleared.fetch_add(1, Ordering::AcqRel);
+        }
+    }
+
     #[test]
     #[ignore = "requires Linux ALSA null output; run explicitly"]
     fn synchronized_output_accepts_full_advertised_pcm_buffer() {
-        let mut output = DeviceOutput::new(Some("alsa:null")).unwrap();
+        let sink = Arc::new(RecordingSink::default());
+        let mut output = DeviceOutput::new(Some("alsa:null"), Some(sink.clone())).unwrap();
         let mut sync = sendspin::sync::ClockSync::default();
         std::thread::sleep(Duration::from_millis(2));
         let now = sync.clock().now_micros();
@@ -979,13 +1043,30 @@ mod device_output_tests {
             output.queued.pending.len() > 500,
             "buffers must pass through real synchronized output"
         );
+        // Every buffer accepted for playback reaches the visualizer, tagged
+        // with the instant the player is scheduled to emit it.
+        let chunks = sink.chunks.lock().clone();
+        assert_eq!(chunks.len(), 540);
+        assert!(chunks
+            .iter()
+            .all(|(samples, channels, rate, _)| *samples == 1920
+                && *channels == 2
+                && *rate == 48000));
+        for pair in chunks.windows(2) {
+            let step = pair[1].3.duration_since(pair[0].3);
+            assert!(
+                step.abs_diff(Duration::from_millis(20)) < Duration::from_millis(1),
+                "scheduled emission must advance with the audio: {step:?}"
+            );
+        }
         output.clear();
+        assert!(sink.cleared.load(Ordering::Acquire) > 0);
     }
 
     #[test]
     #[ignore = "requires Linux ALSA null output; run explicitly"]
     fn begin_delay_can_reset_to_zero_before_audio_or_after_clock_reset() {
-        let mut output = DeviceOutput::new(Some("alsa:null")).unwrap();
+        let mut output = DeviceOutput::new(Some("alsa:null"), None).unwrap();
         let clock =
             std::sync::Arc::new(parking_lot::Mutex::new(sendspin::sync::ClockSync::default()));
         let format = AudioFormat {
