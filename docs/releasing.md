@@ -1,7 +1,7 @@
 # Beta releases
 
 Releases require explicit user authorization. The first beta is `v0.1.0-beta.1`
-and was originally published as a private beta. Matui is now MIT licensed;
+and was originally published as a private beta. Local Matui is now MIT licensed;
 include the root LICENSE in all new packages alongside third-party notices.
 A beta tag must not be labeled as a stable/latest release.
 

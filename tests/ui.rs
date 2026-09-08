@@ -1,4 +1,4 @@
-use matui::ui;
+use local_matui::ui;
 
 #[test]
 fn selects_available_player_and_routes_controls_only_when_connected() {
@@ -27,7 +27,7 @@ fn selects_available_player_and_routes_controls_only_when_connected() {
     );
     assert_eq!(app.selected_id.as_deref(), Some("two"));
     let volume = |name| {
-        ui::Action::Command(matui::controls::Command::Player {
+        ui::Action::Command(local_matui::controls::Command::Player {
             name,
             args: serde_json::json!({}),
         })
@@ -109,7 +109,7 @@ fn renders_disconnected_and_small_terminal_without_panicking() {
             .map(|c| c.symbol())
             .collect();
         if width > 50 {
-            assert!(text.contains("MATUI"));
+            assert!(text.contains("LOCAL-MATUI"));
             assert!(text.contains("Disconnected"));
             assert!(text.contains("No player selected"));
         }
@@ -120,7 +120,7 @@ fn renders_disconnected_and_small_terminal_without_panicking() {
 #[test]
 fn the_visualizer_opens_only_with_local_audio_and_closes_with_esc() {
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-    use matui::visualizer::Mode;
+    use local_matui::visualizer::Mode;
     let key = |c| KeyEvent::new(c, KeyModifiers::NONE);
 
     let mut remote = ui::App::default();
@@ -128,12 +128,12 @@ fn the_visualizer_opens_only_with_local_audio_and_closes_with_esc() {
     assert_eq!(
         remote.visualizer.mode,
         Mode::Off,
-        "without Matui's own speaker there is nothing to visualize"
+        "without Local Matui's own speaker there is nothing to visualize"
     );
     assert!(remote.status.contains("local audio"));
 
     let mut app = ui::App {
-        spectrum: Some(matui::visualizer::Analyzer::new()),
+        spectrum: Some(local_matui::visualizer::Analyzer::new()),
         ..Default::default()
     };
     app.key(key(KeyCode::Char('v')));
@@ -152,12 +152,12 @@ fn the_visualizer_opens_only_with_local_audio_and_closes_with_esc() {
 
 #[test]
 fn both_visualizer_views_render_and_explain_a_silent_endpoint() {
-    use matui::visualizer::Mode;
+    use local_matui::visualizer::Mode;
     let mut app = ui::App {
-        spectrum: Some(matui::visualizer::Analyzer::new()),
+        spectrum: Some(local_matui::visualizer::Analyzer::new()),
         connected: true,
         selected_id: Some("kitchen".into()),
-        local_endpoint: Some("matui-endpoint".into()),
+        local_endpoint: Some("local-matui-endpoint".into()),
         players: vec![ui::PlayerView {
             id: "kitchen".into(),
             name: "Kitchen".into(),
@@ -195,7 +195,7 @@ fn both_visualizer_views_render_and_explain_a_silent_endpoint() {
 #[test]
 fn shuffle_and_repeat_keys_act_on_the_displayed_queue() {
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-    use matui::controls::Command;
+    use local_matui::controls::Command;
     use serde_json::json;
     let key = |c| KeyEvent::new(c, KeyModifiers::NONE);
     let mut app = ui::App {

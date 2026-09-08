@@ -1,8 +1,8 @@
-# Matui
+# Local Matui
 
 A Linux terminal controller and local speaker for [Music Assistant](https://www.music-assistant.io/).
 Browse music, manage queues, control network speakers, or play audio on the
-computer running Matui. Built with Rust + Ratatui and embedded
+computer running Local Matui. Built with Rust + Ratatui and embedded
 **sendspin-rs 0.3.7**; no companion player process is required.
 
 - Browse library and provider content, search, and choose where and how to play it.
@@ -10,14 +10,16 @@ computer running Matui. Built with Rust + Ratatui and embedded
 - Save connection credentials in the desktop keyring.
 - Follow live Omarchy theme changes, or use terminal colors on other desktops.
 
-Matui is beta software targeting **Music Assistant 2.10.2**. Other server
+Local Matui is beta software targeting **Music Assistant 2.10.2**. Other server
 versions and audio devices may behave differently; see [Known limitations](#known-limitations).
 
 ## Installation
 
-Current beta: **[v0.1.0-beta.1](https://github.com/brdweb/matui/releases/tag/v0.1.0-beta.1)**
+Current beta: **[v0.1.0-beta.1](https://github.com/brdweb/local-matui/releases/tag/v0.1.0-beta.1)**
 Download the Flatpak bundle, Arch package or Linux x86-64 archive and
-`SHA256SUMS` from the release page. In the download directory, verify the files:
+`SHA256SUMS` from the release page. That release was published before the project
+was renamed, so its files, command and Flatpak application ID still read `matui`;
+the next release ships as `local-matui`. In the download directory, verify the files:
 
 ```sh
 sha256sum --ignore-missing -c SHA256SUMS
@@ -34,7 +36,7 @@ flatpak run io.github.brdweb.Matui
 ```
 
 See [Flatpak setup and permissions](packaging/flatpak/README.md). It uses a separate
-profile from native Matui; set up your login on first launch.
+profile from native Local Matui; set up your login on first launch.
 
 ### Arch Linux / Omarchy
 
@@ -45,15 +47,18 @@ matui
 
 For other Linux distributions, use Flatpak, follow the native archive's bundled
 installation instructions, or [build from source](#build-and-local-install).
-Run Matui as your normal desktop user, not with `sudo`.
+Run Local Matui as your normal desktop user, not with `sudo`.
 
 ## Getting started
 
 ```sh
-matui                 # Opens connection setup when there is no saved login
-matui --setup         # Edit connection/login and local speaker settings
-matui --demo          # Offline preview; never connects or opens audio
+local-matui                 # Opens connection setup when there is no saved login
+local-matui --setup         # Edit connection/login and local speaker settings
+local-matui --demo          # Offline preview; never connects or opens audio
 ```
+
+The published v0.1.0-beta.1 installs this command as `matui`; everything below
+otherwise applies unchanged.
 
 Press **F2** for connection settings and **? / F1** for playback controls. The
 settings screen accepts either a Music Assistant built-in username/password or a
@@ -61,7 +66,8 @@ profile access token. Home Assistant/OAuth users can create a profile token in
 Music Assistant and paste it in the masked token field. Passwords are never
 saved; the resulting token is stored in the desktop Secret Service keyring via
 `secret-tool` (`libsecret` on Arch). Unlock the desktop keyring if saving fails.
-`MATUI_TOKEN` remains available as an environment override for temporary use.
+`LOCAL_MATUI_TOKEN` remains available as an environment override for temporary use;
+`MATUI_TOKEN` is still read for setups configured before the rename.
 
 Set the server URL, speaker name and audio output, then select **Test connection
 and save login**. This first checks that the URL returns Music Assistant server information,
@@ -76,19 +82,23 @@ Pasted text stays in the active field; embedded line breaks do not submit it.
 Esc cancels.
 
 New setup enables **Expose this computer as a speaker** by default. After login,
-Matui registers its persistent Sendspin identity and automatically selects it
-when it appears. The endpoint remains available while Matui is running. Opening
+Local Matui registers its persistent Sendspin identity and automatically selects it
+when it appears. The endpoint remains available while Local Matui is running. Opening
 settings disconnects it until you return; quitting stops local audio. Registration
 does not issue a play command, but Music Assistant can send audio to the endpoint.
 Use `--remote-only` to override speaker registration, or `--local` to enable it.
 
 Default output follows the desktop's ALSA/PipeWire routing. An explicitly selected
 missing device fails visibly instead of falling back to another output. Use
-`matui --list-devices` to inspect available devices. Local means the computer
-running Matui; running over SSH does not forward audio to the SSH client.
+`local-matui --list-devices` to inspect available devices. Local means the computer
+running Local Matui; running over SSH does not forward audio to the SSH client.
 
-Non-secret settings live at `$XDG_CONFIG_HOME/matui/config.toml` or
-`~/.config/matui/config.toml`, with mode 0600. `--config PATH` selects another file.
+Non-secret settings live at `$XDG_CONFIG_HOME/local-matui/config.toml` or
+`~/.config/local-matui/config.toml`, with mode 0600. `--config PATH` selects another file.
+A configuration left at the pre-rename `matui/config.toml` is still read while no
+current one exists, and a login saved under the former keyring name is still
+found; move the file into `local-matui/` to switch directories. Nothing is
+copied or deleted for you.
 Keep `player_id` unchanged to retain the same Music Assistant speaker identity.
 `--init` creates a configuration without overwriting an existing one. Do not put
 tokens in TOML or Git. Prefer HTTPS outside a trusted LAN; HTTP does not encrypt
@@ -161,12 +171,12 @@ The controls menu also accepts media URIs for playback and queueing.
 full-screen view over the track and progress line, then off. Esc closes it.
 Transport keys keep working in both.
 
-The bars are a live analysis of the audio Matui itself is playing through the
+The bars are a live analysis of the audio Local Matui itself is playing through the
 local speaker. A remote speaker's audio never passes through this computer, so
 there is nothing to analyze then and nothing is invented: the view says which
 speaker is playing instead. Muted output reads as silence. Bar height follows
 the decoded stream, not a measurement of the output device, and the display is
-aligned to when Matui is scheduled to emit each sample — device buffering and
+aligned to when Local Matui is scheduled to emit each sample — device buffering and
 acoustic latency are not measured. The visualizer needs local audio enabled
 (F2 settings); without it, **v** explains rather than opening an empty view.
 
@@ -177,7 +187,7 @@ and commands delayed more than three seconds are dropped.
 
 ## Themes
 
-Matui rereads Omarchy's `colors.toml` every 500 ms. It supports the current
+Local Matui rereads Omarchy's `colors.toml` every 500 ms. It supports the current
 `~/.local/state/omarchy/current/theme/` layout (including `XDG_STATE_HOME`) and the
 older `~/.config/omarchy/current/theme/` layout. It retains the last valid palette
 while a theme directory is being replaced. No Omarchy files or hooks are changed.
@@ -192,17 +202,17 @@ packages are `base-devel pkgconf alsa-lib`; on Debian/Ubuntu they are
 running Secret Service, normally supplied by the desktop keyring.
 
 ```sh
-git clone https://github.com/brdweb/matui.git
-cd matui
+git clone https://github.com/brdweb/local-matui.git
+cd local-matui
 cargo build --release --locked
-install -Dm755 target/release/matui ~/.local/bin/matui
-install -Dm644 packaging/matui.desktop ~/.local/share/applications/matui.desktop
-matui --demo
+install -Dm755 target/release/local-matui ~/.local/bin/local-matui
+install -Dm644 packaging/local-matui.desktop ~/.local/share/applications/local-matui.desktop
+local-matui --demo
 ```
 
-The launcher entry is **Matui**. Ensure `~/.local/bin` is on your desktop PATH.
+The launcher entry is **Local Matui**. Ensure `~/.local/bin` is on your desktop PATH.
 Installation does not install a service. Minimum terminal
-size is 50×16; 110×30 is recommended. `matui --demo --snapshot` prints plain text.
+size is 50×16; 110×30 is recommended. `local-matui --demo --snapshot` prints plain text.
 
 Package build instructions are in [packaging/arch/README.md](packaging/arch/README.md)
 and [packaging/flatpak/README.md](packaging/flatpak/README.md).
@@ -225,11 +235,11 @@ cargo fmt --check
 cargo clippy --all-targets --locked -- -D warnings
 cargo test --all-targets --locked
 cargo build --release --locked
-uv run --with pyte python tests/terminal_smoke.py target/release/matui
-uv run --with pyte python tests/terminal_smoke.py target/release/matui sigterm
-uv run --with pyte python tests/connected_smoke.py target/release/matui
-uv run --with pyte python tests/settings_smoke.py target/release/matui
-uv run --with pyte python tests/settings_smoke.py target/release/matui token
+uv run --with pyte python tests/terminal_smoke.py target/release/local-matui
+uv run --with pyte python tests/terminal_smoke.py target/release/local-matui sigterm
+uv run --with pyte python tests/connected_smoke.py target/release/local-matui
+uv run --with pyte python tests/settings_smoke.py target/release/local-matui
+uv run --with pyte python tests/settings_smoke.py target/release/local-matui token
 cargo test --test audio_null --locked -- --ignored  # null + silent default-output tests
 cargo test --locked --lib -- --ignored  # synchronized null-output buffering/delay tests
 # Uses then deletes a disposable synthetic desktop keyring entry:
@@ -249,7 +259,7 @@ restart the connection. Runtime audio volume/mute/delay changes are not persiste
 across application restarts. Upstream Sendspin receivers are unbounded and audio
 callbacks use locks; there is no global real-time/lock-free guarantee.
 
-Matui does not administer users, providers, DSP or the MA server. It has no
+Local Matui does not administer users, providers, DSP or the MA server. It has no
 album art or desktop media-key integration. Player support varies; server
 rejections appear as command errors. Prolonged playback, broader hardware and
 codec coverage, live server restart recovery and multi-room synchronization
@@ -257,14 +267,14 @@ need further testing.
 
 ## Contributing
 
-Bug reports and focused pull requests are welcome. Include the Matui and Music
+Bug reports and focused pull requests are welcome. Include the Local Matui and Music
 Assistant versions, Linux distribution, installation method and steps to reproduce.
 Do not include tokens, passwords, private server addresses or personal media data.
 For code changes, follow [AGENTS.md](AGENTS.md) and run the checks above.
 
 ## License
 
-Matui is licensed under the [MIT License](LICENSE). Third-party dependencies
+Local Matui is licensed under the [MIT License](LICENSE). Third-party dependencies
 retain their own licenses; packaged distributions include their notices.
 The existing `v0.1.0-beta.1` assets predate the addition of the MIT license file;
 the updated file and packaging metadata will be included in future builds.

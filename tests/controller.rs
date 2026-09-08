@@ -1,4 +1,4 @@
-use matui::{
+use local_matui::{
     api::ApiClient,
     controller::{Controller, Update},
 };

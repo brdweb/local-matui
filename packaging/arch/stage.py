@@ -22,12 +22,12 @@ def command(*args):
 
 
 def stage():
-    binary = ROOT / 'target/release/matui'
+    binary = ROOT / 'target/release/local-matui'
     version = tomllib.loads((ROOT / 'Cargo.toml').read_text())['package']['version']
     assert re.fullmatch(r'\d+\.\d+\.\d+(?:-beta\.\d+)?', version), version
     pkgver = version.replace('-', '')
-    package = f'matui-{pkgver}-1-x86_64.pkg.tar.zst'
-    assert command(str(binary), '--version').strip() == f'matui {version}'
+    package = f'local-matui-{pkgver}-1-x86_64.pkg.tar.zst'
+    assert command(str(binary), '--version').strip() == f'local-matui {version}'
     assert 'Advanced Micro Devices X86-64' in command('readelf', '-h', str(binary))
     versions = re.findall(r'GLIBC_(\d+)\.(\d+)', command('readelf', '--version-info', str(binary)))
     glibc = '.'.join(map(str, max(tuple(map(int, v)) for v in versions)))
@@ -66,17 +66,17 @@ def stage():
     (notices / 'inventory.json').write_text(json.dumps(inventory, indent=2) + '\n')
     with tarfile.open(STAGE / 'THIRD-PARTY-NOTICES.tar.gz', 'w:gz') as archive:
         archive.add(notices, arcname='third-party')
-    for source, name in [(binary, 'matui'), (ROOT / 'README.md', 'README.md'),
+    for source, name in [(binary, 'local-matui'), (ROOT / 'README.md', 'README.md'),
                          (ROOT / 'LICENSE', 'LICENSE'),
-                         (ROOT / 'packaging/matui.desktop', 'matui.desktop'),
+                         (ROOT / 'packaging/local-matui.desktop', 'local-matui.desktop'),
                          (ROOT / 'packaging/arch/DEVELOPMENT-STATUS', 'DEVELOPMENT-STATUS')]:
         shutil.copyfile(source, STAGE / name)
     install = (ROOT / 'packaging/arch/INSTALL.txt').read_text()
     (STAGE / 'INSTALL.txt').write_text(install.replace('@VERSION@', version).replace('@PACKAGE@', package).replace('@GLIBC@', glibc))
     (STAGE / 'PACKAGE-NAME').write_text(package + '\n')
     (STAGE / 'VERSION').write_text(version + '\n')
-    (STAGE / 'matui').chmod(0o755)
-    sources = ['matui', 'matui.desktop', 'README.md', 'INSTALL.txt', 'THIRD-PARTY-NOTICES.tar.gz', 'DEVELOPMENT-STATUS', 'LICENSE']
+    (STAGE / 'local-matui').chmod(0o755)
+    sources = ['local-matui', 'local-matui.desktop', 'README.md', 'INSTALL.txt', 'THIRD-PARTY-NOTICES.tar.gz', 'DEVELOPMENT-STATUS', 'LICENSE']
     sums = ' '.join("'" + hashlib.sha256((STAGE / name).read_bytes()).hexdigest() + "'" for name in sources)
     template = (ROOT / 'packaging/arch/PKGBUILD.in').read_text()
     (STAGE / 'PKGBUILD').write_text(template.replace('@GLIBC@', glibc).replace('@PKGVER@', pkgver).replace('@SHA256SUMS@', sums))

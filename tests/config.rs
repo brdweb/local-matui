@@ -1,12 +1,13 @@
-use matui::config;
+use local_matui::config;
 
 #[test]
 fn parses_server_without_storing_a_token() {
-    let cfg =
-        config::Config::parse("server = 'https://ma.example:8095'\nplayer_id = 'matui-test'\n")
-            .unwrap();
+    let cfg = config::Config::parse(
+        "server = 'https://ma.example:8095'\nplayer_id = 'local-matui-test'\n",
+    )
+    .unwrap();
     assert_eq!(cfg.server, "https://ma.example:8095");
-    assert_eq!(cfg.player_id, "matui-test");
+    assert_eq!(cfg.player_id, "local-matui-test");
     assert!(!cfg.local_playback);
     assert_eq!(cfg.volume, 30);
 }

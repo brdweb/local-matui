@@ -1,7 +1,7 @@
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 
-/// Non-secret settings. Access tokens are read separately from MATUI_TOKEN.
+/// Non-secret settings. Access tokens are read separately from LOCAL_MATUI_TOKEN.
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
@@ -18,8 +18,8 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             server: "http://localhost:8095".into(),
-            player_id: format!("matui-{}", uuid::Uuid::new_v4()),
-            player_name: "Matui".into(),
+            player_id: format!("local-matui-{}", uuid::Uuid::new_v4()),
+            player_name: "Local Matui".into(),
             device_id: None,
             local_playback: false,
             volume: 30,
@@ -37,7 +37,7 @@ impl Config {
             .filter(|p| !p.as_os_str().is_empty())
             .unwrap_or(std::path::Path::new("."));
         std::fs::create_dir_all(parent)?;
-        let temp = parent.join(format!(".matui-{}.tmp", uuid::Uuid::new_v4()));
+        let temp = parent.join(format!(".local-matui-{}.tmp", uuid::Uuid::new_v4()));
         let result = (|| -> Result<()> {
             let mut file = std::fs::OpenOptions::new()
                 .write(true)

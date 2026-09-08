@@ -1,10 +1,10 @@
-Matui @VERSION@ — Omarchy / Arch Linux x86-64 beta
+Local Matui @VERSION@ — Omarchy / Arch Linux x86-64 beta
 
 Install on your LOCAL Omarchy computer, not inside the SSH session:
 
     sha256sum --ignore-missing -c SHA256SUMS
     sudo pacman -U ./@PACKAGE@
-    matui --demo
+    local-matui --demo
 
 This is an unsigned private package. Do not disable signature checking globally.
 If your local package signature policy rejects it, stop and review that policy
@@ -17,36 +17,36 @@ Rust toolchain, Python runtime or separate Sendspin executable is needed.
 
 Configure (run as your normal desktop user, NOT sudo):
 
-    matui --setup
+    local-matui --setup
 
 Enter the server URL and either a built-in Music Assistant username/password or a
 profile token. Login persistence requires libsecret's secret-tool and an unlocked
 desktop Secret Service keyring. Passwords are not saved. Choose the local speaker
 name/output and save. F2 reopens settings; ? opens all playback/player controls.
-MATUI_TOKEN remains an optional environment override; never put it in TOML.
+LOCAL_MATUI_TOKEN remains an optional environment override; never put it in TOML.
 
-Local means the machine RUNNING Matui. SSH does not forward audio to your laptop.
+Local means the machine RUNNING Local Matui. SSH does not forward audio to your laptop.
 --local registers an audio endpoint; MA can send audio to it. --remote-only disables
 local audio. The demo never connects or opens an audio stream.
 
 No credentials or local configuration are shipped. Installation does not start
-Matui, create a service, register a player or change audio routing. Removing the
+Local Matui, create a service, register a player or change audio routing. Removing the
 package does not remove your personal config:
 
-    sudo pacman -R matui
+    sudo pacman -R local-matui
 
-Read /usr/share/doc/matui/README.md for keys and limitations. Enter opens collections
+Read /usr/share/doc/local-matui/README.md for keys and limitations. Enter opens collections
 or a playback menu; Play now explicitly replaces the selected player's queue.
 'a' appends, 'N' plays next, and 'b' opens the music browser.
 
-Alternatively, extract the Linux archive and run ./matui, or install it as your user:
+Alternatively, extract the Linux archive and run ./local-matui, or install it as your user:
 
-    install -Dm755 matui ~/.local/bin/matui
-    install -Dm644 matui.desktop ~/.local/share/applications/matui.desktop
+    install -Dm755 local-matui ~/.local/bin/local-matui
+    install -Dm644 local-matui.desktop ~/.local/share/applications/local-matui.desktop
 
 Keep the bundled documentation and third-party license notices with the binary.
-If migrating from a user installation to the Arch package, ~/.local/bin/matui may
-take precedence over /usr/bin/matui. Check with 'command -v matui' and remove or
+If migrating from a user installation to the Arch package, ~/.local/bin/local-matui may
+take precedence over /usr/bin/local-matui. Check with 'command -v local-matui' and remove or
 rename only the old user executable after validating the package installation.
 
 The executable was compiled on the development host and wrapped using Arch

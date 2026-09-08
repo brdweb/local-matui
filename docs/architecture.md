@@ -1,11 +1,11 @@
-# Matui architecture
+# Local Matui architecture
 
 ## Accepted scope
 
 Rust + Ratatui Linux TUI; Music Assistant 2.10.2 is the initial integration
 target. Local playback is included from the first implementation, not a later
 phase. Embed `sendspin = "=0.3.7"`; do not introduce a companion player process.
-Commit Cargo.lock when changes are reviewed. Matui is MIT licensed; third-party
+Commit Cargo.lock when changes are reviewed. Local Matui is MIT licensed; third-party
 dependencies retain their own licenses. Release gates are in `docs/releasing.md`.
 
 ## Boundaries
@@ -17,7 +17,7 @@ dependencies retain their own licenses. Release gates are in `docs/releasing.md`
 - Local audio: authenticated WebSocket connection followed by Sendspin, decoding,
   synchronized CPAL output, server volume/mute, stream lifecycle, reconnection.
 - Configuration: non-secret TOML, stable local player identity and device ID.
-  Token stored in Secret Service or supplied using MATUI_TOKEN, never a command-line argument.
+  Token stored in Secret Service or supplied using LOCAL_MATUI_TOKEN, never a command-line argument.
 
 Selecting a remote player does not move playback or start local audio. Enabling
 local audio registers an endpoint but does not issue a play command; MA may send
@@ -60,7 +60,7 @@ the output. Test nonzero-to-zero resets before the first buffer as well as after
 clock invalidation on an actual null-output player.
 
 Music Assistant 2.10.2 pins aiosendspin 9.1.1. Its player buffer tracker accounts
-encoded bytes and permits a 30-second duration horizon. Matui advertises 2 MiB
+encoded bytes and permits a 30-second duration horizon. Local Matui advertises 2 MiB
 of encoded capacity, so a two-second/2 MiB decoded limit is incompatible: 48 kHz
 stereo PCM16 can legitimately fill almost 11 seconds and expands to i32 samples.
 The decoded queue therefore permits 32 MiB, 4096 chunks and a 35-second scheduling
@@ -91,7 +91,7 @@ https://github.com/music-assistant/server/blob/2.10.2/music_assistant/providers/
 With explicit user authorization, the installed build resumed only the existing
 ungrouped local queue, remained available/playing throughout two brief tests,
 and was paused afterward. The final run produced a non-silent signal measured
-from Matui's own PipeWire/PulseAudio sink-input monitor on the configured desktop
+from Local Matui's own PipeWire/PulseAudio sink-input monitor on the configured desktop
 output. Samples stayed in memory and were discarded; no media recording was
 saved. Remote player state/control snapshots were unchanged. A restart also
 verified automatic selection of the universal wrapper. Acoustic latency and
@@ -128,7 +128,7 @@ rows, and Enter on a filter matching nothing keeps the menu open.
 
 ## Visualizer (2026-09-08)
 
-The spectrum display analyses only Matui's own output. `DeviceOutput::write`
+The spectrum display analyses only Local Matui's own output. `DeviceOutput::write`
 hands each accepted buffer to an `audio::SampleSink` — a trait declared in the
 audio module so it does not depend on presentation code — tagged with the
 instant the player is scheduled to emit it, which is
@@ -171,7 +171,7 @@ empty-state explanations are covered without hardware.
 ## Laptop controller iteration (2026-09-08)
 
 - Retain Rust/Ratatui and the exact Sendspin 0.3.7 pin. The laptop endpoint is
-  embedded in Matui, active while the application runs; no background service.
+  embedded in Local Matui, active while the application runs; no background service.
 - The settings screen is limited to connection/login and the local endpoint.
   Built-in login uses POST `/auth/login` with `provider_id`, `credentials`, and
   `device_name`, then reads `token`. It uses the returned session token rather
@@ -181,7 +181,7 @@ empty-state explanations are covered without hardware.
   URL prefixes, disable redirects, bound network/keyring operations, and omit
   response bodies from errors. Never put a password/token in process arguments.
 - `secret-tool` passes tokens via pipes into Secret Service, keyed by server URL
-  and persistent player identity. MATUI_TOKEN overrides lookup for that run.
+  and persistent player identity. LOCAL_MATUI_TOKEN overrides lookup for that run.
   Config updates are private, atomic file replacements. Settings/network work
   runs on runtime workers while the terminal remains responsive.
 - Theme updates reopen the palette path every 500 ms. This laptop's installed

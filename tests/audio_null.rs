@@ -1,7 +1,7 @@
 //! Opt-in integration with the real CPAL/ALSA null device. No audible output.
 use futures_util::{SinkExt, StreamExt};
-use matui::audio::{self, AudioConfig};
-use matui::visualizer::Analyzer;
+use local_matui::audio::{self, AudioConfig};
+use local_matui::visualizer::Analyzer;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio_tungstenite::tungstenite::Message;

@@ -36,7 +36,7 @@ or use them when packaging for another Linux distribution.
   `.tools/sysroot/usr/lib/x86_64-linux-gnu/libasound.so.2.0.0` points to the installed
   system ALSA runtime. This is a local sysroot repair, not a shipping requirement.
 - `pkgconf --modversion alsa` returned `1.2.11`.
-- `matui --list-devices` found `alsa:null` only. Null output discards samples; it
+- `local-matui --list-devices` found `alsa:null` only. Null output discards samples; it
   cannot establish physical-device compatibility or audible playback quality.
 
 ## Test discipline
@@ -50,7 +50,7 @@ PTY smoke tests run the actual executable and verify terminal restoration.
 Ratatui redraws changed cells, so raw output does not necessarily contain a
 contiguous search query/status string: decode the VT stream with pyte and assert
 on its screen, rather than searching the raw byte history. Tests use `uv run
---with pyte python ...`; Python is not a runtime dependency of Matui.
+--with pyte python ...`; Python is not a runtime dependency of Local Matui.
 
 A successful localhost fixture exchange is not proof of live MA compatibility.
 For stable qualification, validate actual MA 2.10.2 authentication, player registration,

@@ -1,5 +1,5 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use matui::{
+use local_matui::{
     config::Config,
     settings::Settings,
     theme::{self, Palette},
@@ -9,7 +9,7 @@ use ratatui::style::Color;
 
 #[test]
 fn palette_tracks_replaced_directory_and_keeps_last_valid_colors() {
-    let dir = std::env::temp_dir().join(format!("matui-theme-{}", uuid::Uuid::new_v4()));
+    let dir = std::env::temp_dir().join(format!("local-matui-theme-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("colors.toml");
     std::fs::write(
@@ -53,7 +53,9 @@ fn settings_masks_credentials_and_never_dispatches_playback_shortcuts() {
     for size in [(110, 30), (50, 16), (1, 1)] {
         let mut terminal =
             ratatui::Terminal::new(ratatui::backend::TestBackend::new(size.0, size.1)).unwrap();
-        terminal.draw(|f| matui::ui::draw(f, &mut app)).unwrap();
+        terminal
+            .draw(|f| local_matui::ui::draw(f, &mut app))
+            .unwrap();
         let text: String = terminal
             .backend()
             .buffer()
@@ -105,7 +107,7 @@ fn paste_stays_in_active_field_and_rejects_oversized_input_without_truncation() 
 #[test]
 fn saving_settings_preserves_identity_and_private_mode() {
     use std::os::unix::fs::PermissionsExt;
-    let dir = std::env::temp_dir().join(format!("matui-settings-{}", uuid::Uuid::new_v4()));
+    let dir = std::env::temp_dir().join(format!("local-matui-settings-{}", uuid::Uuid::new_v4()));
     let path = dir.join("config.toml");
     let mut config = Config::default();
     config.save(&path).unwrap();

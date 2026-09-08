@@ -11,7 +11,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 WORK = ROOT / '.tools/flatpak-package'
-APP = 'io.github.brdweb.Matui'
+APP = 'io.github.brdweb.LocalMatui'
 
 
 def run(*args, **kwargs):
@@ -24,37 +24,37 @@ def sandbox(*args, **kwargs):
 
 def main():
     info = json.loads((WORK / 'BUILDINFO.json').read_text())
-    bundle = WORK / f"matui-v{info['version']}-linux-x86_64.flatpak"
+    bundle = WORK / f"local-matui-v{info['version']}-linux-x86_64.flatpak"
     assert hashlib.sha256(bundle.read_bytes()).hexdigest() == info['bundle_sha256']
-    assert sandbox('sha256sum', '/app/bin/matui').split()[0] == info['binary_sha256']
+    assert sandbox('sha256sum', '/app/bin/local-matui').split()[0] == info['binary_sha256']
     assert sandbox('sha256sum', '/app/bin/secret-tool').split()[0] == info['secret_tool_sha256']
-    assert sandbox('matui', '--version') == f"matui {info['version']}"
-    assert 'MATUI' in sandbox('matui', '--demo', '--snapshot')
-    assert 'default' in sandbox('matui', '--list-devices').lower()
-    sandbox('sh', '-c', 'test ! -e "$HOME/.config/matui/config.toml"')
+    assert sandbox('local-matui', '--version') == f"local-matui {info['version']}"
+    assert 'LOCAL-MATUI' in sandbox('local-matui', '--demo', '--snapshot')
+    assert 'default' in sandbox('local-matui', '--list-devices').lower()
+    sandbox('sh', '-c', 'test ! -e "$HOME/.config/local-matui/config.toml"')
     theme = Path.home() / '.local/state/omarchy/current/theme/colors.toml'
     if theme.is_file():
         assert sandbox('sha256sum', str(theme)).split()[0] == hashlib.sha256(theme.read_bytes()).hexdigest()
     # Only our uniquely named disposable item is created/read/deleted.
-    item = 'matui-flatpak-fixture-' + uuid.uuid4().hex
+    item = 'local-matui-flatpak-fixture-' + uuid.uuid4().hex
     value = uuid.uuid4().hex
     try:
-        sandbox('secret-tool', 'store', '--label=Matui Flatpak disposable test',
+        sandbox('secret-tool', 'store', '--label=Local Matui Flatpak disposable test',
                 'application', item, input=value + '\n')
         assert sandbox('secret-tool', 'lookup', 'application', item) == value
     finally:
         sandbox('secret-tool', 'clear', 'application', item)
-    with tempfile.TemporaryDirectory(prefix='matui-flatpak-verify-') as tmp:
-        wrapper = Path(tmp) / 'matui-flatpak'
+    with tempfile.TemporaryDirectory(prefix='local-matui-flatpak-verify-') as tmp:
+        wrapper = Path(tmp) / 'local-matui-flatpak'
         # The connected fixture's temporary TOML needs a read-only test grant.
         # Production metadata never grants /tmp or the host configuration.
-        wrapper.write_text('#!/bin/bash\nset -e\nextra=()\nif [[ ${1:-} == --config ]]; then extra+=("--filesystem=$(dirname "$2"):ro"); fi\nexec flatpak run --user "${extra[@]}" io.github.brdweb.Matui "$@"\n')
+        wrapper.write_text('#!/bin/bash\nset -e\nextra=()\nif [[ ${1:-} == --config ]]; then extra+=("--filesystem=$(dirname "$2"):ro"); fi\nexec flatpak run --user "${extra[@]}" io.github.brdweb.LocalMatui "$@"\n')
         wrapper.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
         for script, extra in [('terminal_smoke.py', []), ('terminal_smoke.py', ['sigterm']),
                               ('connected_smoke.py', [])]:
             subprocess.run(['uv', 'run', '--with', 'pyte', 'python', 'tests/' + script,
                             str(wrapper), *extra], cwd=ROOT, check=True,
-                           env=dict(os.environ, MATUI_TEST_FLATPAK_APP=APP))
+                           env=dict(os.environ, LOCAL_MATUI_TEST_FLATPAK_APP=APP))
     # Existing real CPAL test connects to an in-process fake audio server. It
     # opens the desktop output and acknowledges commands without audio frames.
     result = run('cargo', 'test', '--test', 'audio_null', '--no-run', '--locked', '--message-format=json')

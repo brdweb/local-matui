@@ -72,12 +72,12 @@ def until(predicate):
 def visible(text):
     until(lambda:text in "\n".join(screen.display))
 
-with tempfile.TemporaryDirectory(prefix="matui-smoke-") as tmp:
+with tempfile.TemporaryDirectory(prefix="local-matui-smoke-") as tmp:
     path=os.path.join(tmp,"config.toml")
     with open(path,"w") as f:
         f.write(f'server = "http://127.0.0.1:{server.server_port}"\nplayer_id = "test-local"\nlocal_playback = true\n')
     proc=subprocess.Popen([sys.argv[1],"--config",path,"--remote-only"],stdin=slave,stdout=slave,stderr=slave,
-        env=dict(os.environ,TERM="xterm-256color",MATUI_TOKEN="local-fixture"))
+        env=dict(os.environ,TERM="xterm-256color",LOCAL_MATUI_TOKEN="local-fixture"))
     try:
         visible("Fixture speaker")
         visible("Music library")
@@ -115,7 +115,7 @@ with tempfile.TemporaryDirectory(prefix="matui-smoke-") as tmp:
         visible("Controls")
         os.write(master,b"jj\r")
         until(lambda:any(c["command"]=="players/cmd/stop" for c in calls))
-        os.write(master,b"\x1b")
+        os.write(master,b"\x1bOS")  # F4 focuses the queue; Esc now cancels or steps back.
         visible("QUEUE")
         os.write(master,b"\x1b[3~")
         until(lambda:any(c["command"]=="player_queues/delete_item" and c["args"]["item_id_or_index"]=="item1" for c in calls))

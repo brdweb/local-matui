@@ -749,7 +749,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
     };
     frame.render_widget(
         Paragraph::new(format!(
-            "MATUI · {}\n{heading}\n{} of {} shown",
+            "LOCAL-MATUI · {}\n{heading}\n{} of {} shown",
             menu.title,
             visible.len(),
             menu.entries.len()

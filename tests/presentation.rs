@@ -1,4 +1,4 @@
-use matui::{
+use local_matui::{
     api::{Player, Queue},
     controller::Update,
     presentation::apply,
@@ -63,14 +63,14 @@ fn metadata_is_not_allowed_to_emit_terminal_control_characters() {
 
 #[test]
 fn local_selection_resolves_universal_wrapper_and_preserves_user_selection() {
-    use matui::presentation::select_local;
+    use local_matui::presentation::select_local;
     let mut app = App {
         connected: true,
         players: vec![
             PlayerView {
                 id: "remote".into(),
                 available: true,
-                name: "Matui".into(),
+                name: "Local Matui".into(),
                 ..Default::default()
             },
             PlayerView {

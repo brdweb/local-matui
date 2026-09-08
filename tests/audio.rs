@@ -223,7 +223,7 @@ async fn authenticated_session_decodes_on_worker_confirms_commands_and_stops() {
         .unwrap();
     fixture.await.unwrap();
     let log = assertions.lock().unwrap();
-    assert!(log.iter().any(|x| x == "begin:matui-audio"));
+    assert!(log.iter().any(|x| x == "begin:local-matui-audio"));
     assert!(log.iter().any(|x| x == "samples:2"));
     assert!(log.iter().any(|x| x == "gain:62:false:123"));
     assert_eq!(log.last().unwrap(), "clear");

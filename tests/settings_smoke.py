@@ -59,7 +59,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
 server = http.server.ThreadingHTTPServer(('127.0.0.1',0), Handler)
 threading.Thread(target=server.serve_forever, daemon=True).start()
-with tempfile.TemporaryDirectory(prefix='matui-settings-') as tmp:
+with tempfile.TemporaryDirectory(prefix='local-matui-settings-') as tmp:
     tmp = pathlib.Path(tmp)
     config = tmp / 'config.toml'
     config.write_text(f'server="http://127.0.0.1:{server.server_port}{prefix}"\nplayer_id="fixture-id"\nlocal_playback=false\n')
@@ -80,6 +80,7 @@ else:
     theme.write_text("background='#010203'\nforeground='#eeeeee'\naccent='#ff0000'\n")
     env = dict(os.environ, TERM='xterm-256color', PATH=f'{tmp}:'+os.environ['PATH'],
                FIXTURE_KEYRING=str(tmp/'keyring'), XDG_STATE_HOME=str(tmp/'state'))
+    env.pop('LOCAL_MATUI_TOKEN',None)
     env.pop('MATUI_TOKEN',None)
     env.pop('NO_COLOR',None)
     for restart in [False, True]:

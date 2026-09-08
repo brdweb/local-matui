@@ -1,4 +1,4 @@
-//! Matui application components.
+//! Local Matui application components.
 pub mod api;
 pub mod audio;
 pub mod cli;

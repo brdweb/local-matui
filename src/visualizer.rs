@@ -1,4 +1,4 @@
-//! Spectrum analysis of Matui's own local audio output.
+//! Spectrum analysis of Local Matui's own local audio output.
 //!
 //! The only source is decoded PCM that this process is about to hand to CPAL,
 //! tagged with the local instant the synchronized player is scheduled to emit
@@ -6,7 +6,7 @@
 //! nothing to analyze then and nothing is invented: the view says why it is
 //! empty instead of animating. The scheduled emission instant is not a
 //! measurement of device buffering or acoustic latency, so alignment is to what
-//! Matui sends, not to what a speaker reproduces.
+//! Local Matui sends, not to what a speaker reproduces.
 //!
 //! Mute is honoured because muted output is silent. The per-player volume curve
 //! is applied downstream by Sendspin's ramped `GainControl`; it is not

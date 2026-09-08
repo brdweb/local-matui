@@ -32,20 +32,20 @@ def main():
     version = tomllib.loads((ROOT / 'Cargo.toml').read_text())['package']['version']
     assert re.fullmatch(r'\d+\.\d+\.\d+-beta\.\d+', version), 'Beta versions only'
     assert (STAGE / 'VERSION').read_text().strip() == version
-    binary = ROOT / 'target/release/matui'
-    assert command(str(binary), '--version') == f'matui {version}'
-    assert digest(binary) == digest(STAGE / 'matui'), 'Staged executable is stale'
+    binary = ROOT / 'target/release/local-matui'
+    assert command(str(binary), '--version') == f'local-matui {version}'
+    assert digest(binary) == digest(STAGE / 'local-matui'), 'Staged executable is stale'
     assert digest(ROOT / 'README.md') == digest(STAGE / 'README.md'), 'Staged README is stale'
     assert digest(ROOT / 'LICENSE') == digest(STAGE / 'LICENSE'), 'Staged license is stale'
     package_name = (STAGE / 'PACKAGE-NAME').read_text().strip()
-    assert package_name == f"matui-{version.replace('-', '')}-1-x86_64.pkg.tar.zst"
+    assert package_name == f"local-matui-{version.replace('-', '')}-1-x86_64.pkg.tar.zst"
     package = STAGE / package_name
     assert package.is_file(), 'Build and verify the Arch package first'
     # Ensure this package actually embeds the exact release binary.
-    packaged_binary = subprocess.check_output(['tar', '-xOf', str(package), 'usr/bin/matui'])
+    packaged_binary = subprocess.check_output(['tar', '-xOf', str(package), 'usr/bin/local-matui'])
     assert hashlib.sha256(packaged_binary).hexdigest() == digest(binary)
     flatpak_stage = ROOT / '.tools/flatpak-package'
-    flatpak = flatpak_stage / f'matui-v{version}-linux-x86_64.flatpak'
+    flatpak = flatpak_stage / f'local-matui-v{version}-linux-x86_64.flatpak'
     flatpak_info = json.loads((flatpak_stage / 'BUILDINFO.json').read_text())
     assert flatpak_info['version'] == version
     assert flatpak_info['binary_sha256'] == digest(binary)
@@ -54,7 +54,7 @@ def main():
     verified = json.loads((flatpak_stage / 'VERIFIED.json').read_text())
     assert verified['bundle_sha256'] == digest(flatpak)
     assert verified['binary_sha256'] == digest(binary)
-    prefix = f'matui-v{version}'
+    prefix = f'local-matui-v{version}'
     destination = ROOT / 'dist' / f'v{version}'
     destination.mkdir(parents=True, exist_ok=True)
     versions = re.findall(r'GLIBC_(\d+)\.(\d+)', command('readelf', '--version-info', str(binary)))
@@ -79,7 +79,7 @@ def main():
     manifest_path.write_text(json.dumps(manifest, indent=2) + '\n')
     archive_path = destination / f'{prefix}-linux-x86_64.tar.gz'
     with tarfile.open(archive_path, 'w:gz') as archive:
-        for name in ['matui', 'matui.desktop', 'README.md', 'INSTALL.txt', 'DEVELOPMENT-STATUS', 'LICENSE', 'third-party']:
+        for name in ['local-matui', 'local-matui.desktop', 'README.md', 'INSTALL.txt', 'DEVELOPMENT-STATUS', 'LICENSE', 'third-party']:
             archive.add(STAGE / name, arcname=f'{prefix}/{name}')
         archive.add(manifest_path, arcname=f'{prefix}/BUILDINFO.json')
     source_path = destination / f'{prefix}-source.tar.gz'
