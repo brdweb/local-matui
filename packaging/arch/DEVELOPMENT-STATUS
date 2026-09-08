@@ -1,0 +1,12 @@
+MATUI — PRIVATE DEVELOPMENT BUILD
+
+The application's public licensing has not been selected. This package is a
+private development handoff for the commissioning user's testing, not a public
+release or a representation that all Matui code has an open-source license.
+Third-party software retains its own licenses; copies of shipped crate license
+and notice files, package license declarations, and Rust runtime copyright
+notices are in the accompanying third-party directory.
+
+No warranty of live Music Assistant compatibility, physical-device audio or
+synchronization accuracy is made. This software can control real players and
+replace queues; use it deliberately.

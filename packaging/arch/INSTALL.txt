@@ -1,0 +1,49 @@
+Matui 0.1.0 — Omarchy / Arch Linux x86-64 development package
+
+Install on your LOCAL Omarchy computer, not inside the SSH session:
+
+    sha256sum -c matui-0.1.0-1-x86_64.pkg.tar.zst.sha256
+    sudo pacman -U ./matui-0.1.0-1-x86_64.pkg.tar.zst
+    matui --demo
+
+This is an unsigned private package. Do not disable signature checking globally.
+If your local package signature policy rejects it, stop and review that policy
+rather than bypassing it. Dependencies are declared for pacman's normal checks.
+
+Requires glibc >= 2.39, gcc-libs, alsa-lib and ca-certificates. PipeWire desktop
+routing uses pipewire-alsa (optional package; ordinarily part of desktop audio
+setup). Do not use --nodeps or --overwrite to force installation. No compiler,
+Rust toolchain, Python runtime or separate Sendspin executable is needed.
+
+Configure (run as your normal desktop user, NOT sudo):
+
+    matui --init
+    matui --list-devices
+
+Edit ~/.config/matui/config.toml (or $XDG_CONFIG_HOME/matui/config.toml) and set
+server to your Music Assistant URL. Keep the generated player_id. Set device_id
+only if you want an explicit output from --list-devices.
+
+In Bash, prompt for the token without storing it in command history:
+
+    read -rsp 'Music Assistant token: ' MATUI_TOKEN; printf '\n'
+    export MATUI_TOKEN
+    matui --local
+    unset MATUI_TOKEN
+
+Local means the machine RUNNING Matui. SSH does not forward audio to your laptop.
+--local registers an audio endpoint; MA can send audio to it. --remote-only disables
+local audio. The demo never connects or opens an audio stream.
+
+No credentials or local configuration are shipped. Installation does not start
+Matui, create a service, register a player or change audio routing. Removing the
+package does not remove your personal config:
+
+    sudo pacman -R matui
+
+Read /usr/share/doc/matui/README.md for keys and limitations. Enter on a search
+result REPLACES the selected player's queue and starts playback; 'a' appends.
+
+The executable was compiled on the development host and wrapped using Arch
+makepkg. It is not an Arch source rebuild or an official repository/AUR package.
+Physical audio and live MA 2.10.2 compatibility remain unverified.
