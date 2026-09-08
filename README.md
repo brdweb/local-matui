@@ -143,8 +143,9 @@ confirmed. Read-only terminal checks also verified album listings, album tracks,
 back navigation and provider browsing. Automated playback checks use local protocol
 fixtures. The local desktop keyring
 round-trip and CPAL/ALSA null-output tests have also been exercised on this laptop.
-**Local speaker registration and audible playback still require validation
-against the user's server.** No multi-room sync claim is made.
+An authorized live local-player test confirmed registration, sustained playback
+and a non-silent signal at the laptop's configured audio output. Remote-speaker
+playback is also user-confirmed. No multi-room sync or acoustic latency claim is made.
 
 ```sh
 cargo fmt --check
