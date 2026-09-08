@@ -9,7 +9,7 @@ use tokio::{
 };
 
 #[tokio::test]
-async fn volume_command_uses_fresh_state_then_refreshes_and_is_not_replayed() {
+async fn player_commands_reach_the_server_once_and_expired_ones_are_dropped() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let api = ApiClient::new(
         &format!("http://{}", listener.local_addr().unwrap()),
@@ -34,7 +34,7 @@ async fn volume_command_uses_fresh_state_then_refreshes_and_is_not_replayed() {
                             "players/all" => {
                                 r#"[{"player_id":"p","volume_level":98,"available":true}]"#
                             }
-                            "players/cmd/volume_set" => {
+                            "players/cmd/volume_up" => {
                                 observed.send(v.clone()).await.unwrap();
                                 "null"
                             }
@@ -47,18 +47,25 @@ async fn volume_command_uses_fresh_state_then_refreshes_and_is_not_replayed() {
             }
         }
     });
+    // The server owns the volume step, so no player state is read first.
+    let step = || {
+        Action::Command(matui::controls::Command::Player {
+            name: "volume_up",
+            args: serde_json::json!({}),
+        })
+    };
     let mut worker = Controller::start(api);
     worker
         .requests
-        .send(Request::new(Some("p".into()), Action::Volume(5)))
+        .send(Request::new(Some("p".into()), step()))
         .await
         .unwrap();
     let result = tokio::time::timeout(std::time::Duration::from_secs(2), observations.recv())
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(result["args"]["volume_level"], 100);
-    let mut expired = Request::new(Some("p".into()), Action::Volume(-5));
+    assert_eq!(result["args"]["player_id"], "p");
+    let mut expired = Request::new(Some("p".into()), step());
     expired.issued -= std::time::Duration::from_secs(5);
     worker.requests.send(expired).await.unwrap();
     tokio::time::timeout(std::time::Duration::from_secs(2), async {

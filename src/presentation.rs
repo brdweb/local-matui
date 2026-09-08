@@ -13,19 +13,26 @@ pub fn select_local(app: &mut App, endpoint: &str) -> Option<String> {
     if app.selected_id.is_some() || !app.connected || endpoint.is_empty() {
         return None;
     }
-    let index = app.players.iter().position(|p| {
-        p.available
-            && (p.id == endpoint
-                || p.details["output_protocols"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .any(|v| v["output_protocol_id"].as_str() == Some(endpoint)))
-    })?;
+    let index = app
+        .players
+        .iter()
+        .position(|p| p.available && matches_endpoint(p, endpoint))?;
     let id = app.players[index].id.clone();
     app.selected_id = Some(id.clone());
     app.player_cursor = index;
     Some(id)
+}
+
+/// Whether a player is Matui's own endpoint, directly or as the universal
+/// wrapper MA puts in front of it. Display names are never identity matches.
+pub fn matches_endpoint(player: &PlayerView, endpoint: &str) -> bool {
+    !endpoint.is_empty()
+        && (player.id == endpoint
+            || player.details["output_protocols"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .any(|v| v["output_protocol_id"].as_str() == Some(endpoint)))
 }
 
 /// Apply network snapshots only to the player/query they were requested for.

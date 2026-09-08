@@ -1,7 +1,9 @@
 //! Opt-in integration with the real CPAL/ALSA null device. No audible output.
 use futures_util::{SinkExt, StreamExt};
 use matui::audio::{self, AudioConfig};
-use std::time::Duration;
+use matui::visualizer::Analyzer;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tokio_tungstenite::tungstenite::Message;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -54,15 +56,19 @@ async fn check_output(device: Option<&str>) {
         }
         panic!("no volume acknowledgement");
     });
-    let mut audio = audio::start(AudioConfig {
-        server: base,
-        token: "fixture".into(),
-        player_id: "null-fixture".into(),
-        player_name: "Null fixture".into(),
-        device_id: device.map(str::to_owned),
-        volume: 30,
-        muted: false,
-    })
+    let spectrum = Analyzer::new();
+    let mut audio = audio::start(
+        AudioConfig {
+            server: base,
+            token: "fixture".into(),
+            player_id: "null-fixture".into(),
+            player_name: "Null fixture".into(),
+            device_id: device.map(str::to_owned),
+            volume: 30,
+            muted: false,
+        },
+        Some(Arc::new(spectrum.clone())),
+    )
     .unwrap();
     let result = tokio::time::timeout(Duration::from_secs(5), async {
         loop {
@@ -79,4 +85,8 @@ async fn check_output(device: Option<&str>) {
     .await;
     audio.shutdown().await;
     result.unwrap();
+    // This fixture configures a stream but sends no audio frames, so the
+    // visualizer must have nothing to show rather than something invented.
+    assert_eq!(spectrum.buffered(), 0);
+    assert!(spectrum.capture(Instant::now()).is_err());
 }

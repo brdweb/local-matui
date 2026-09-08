@@ -385,17 +385,23 @@ pub fn choose(app: &mut App, media: &Media) -> Action {
     app.menu = Some(crate::controls::Menu {
         player: Some(player.id.clone()),
         title: format!("Play on {} · {}", player.name, media.title),
-        entries: vec![
-            (
-                "Play now (replace queue)".into(),
-                Action::Play(media.uri.clone()),
-            ),
-            ("Play next".into(), Action::PlayNext(media.uri.clone())),
-            ("Add to queue".into(), Action::Enqueue(media.uri.clone())),
-        ],
+        entries: [
+            ("Play now (replace queue)", Action::Play(media.uri.clone())),
+            ("Play next", Action::PlayNext(media.uri.clone())),
+            ("Add to queue", Action::Enqueue(media.uri.clone())),
+        ]
+        .into_iter()
+        .map(|(label, action)| crate::controls::Entry {
+            section: "Play this item",
+            label: label.into(),
+            action,
+        })
+        .collect(),
         cursor: 0,
         prompt: None,
         error: String::new(),
+        filter: String::new(),
+        filtering: false,
     });
     Action::None
 }

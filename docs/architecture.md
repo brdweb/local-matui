@@ -97,6 +97,64 @@ saved. Remote player state/control snapshots were unchanged. A restart also
 verified automatic selection of the universal wrapper. Acoustic latency and
 multi-room synchronization were not measured.
 
+## Controls and layout (2026-09-08)
+
+The content area is two columns: players above the queue on the left, browser or
+search on the right, so adding music never hides the queue. Chrome is eleven
+rows — two header, four now playing, three status, two hints — and the now
+playing block carries transport state, volume, mute and the queue's
+shuffle/repeat rather than leaving them to other panes. The hint lines are the
+focused pane's keys plus a fixed transport line kept under 102 columns.
+
+`p` is play/pause, matching other players, with previous/next on `<`/`>` (`,`
+and `.` as unshifted aliases) and `n` retained for next. Following the
+terminal-player convention, `s` stops, `z` toggles shuffle and `l` cycles
+repeat, so no binding is the shifted form of an unrelated one. Queue-mode keys carry the displayed queue ID and
+therefore keep `check_queue`'s ownership comparison; a dynamic queue reports no
+shuffle or repeat and the key says so instead of guessing. Esc closes the
+visualizer, leaves search for the browser, or steps back in the browser.
+
+Volume keys send `players/cmd/volume_up`/`volume_down`, so the server owns the
+step and rapid presses cannot race a read-modify-write; `Control::Volume` is
+gone because `playback_command` already routes player commands. Seeking resolves
+an absolute position from the displayed elapsed time and updates it optimistically,
+so holding the key accumulates locally instead of issuing a queue request per
+keystroke; the next two-second poll corrects it.
+
+Controls menu entries carry a heading and are sorted into heading order with a
+stable sort, preserving order within each group. `/` filters by label or
+heading; the cursor indexes the filtered entries, headings are unselectable
+rows, and Enter on a filter matching nothing keeps the menu open.
+
+## Visualizer (2026-09-08)
+
+The spectrum display analyses only Matui's own output. `DeviceOutput::write`
+hands each accepted buffer to an `audio::SampleSink` — a trait declared in the
+audio module so it does not depend on presentation code — tagged with the
+instant the player is scheduled to emit it, which is
+`server_to_local_instant(timestamp)` minus the configured static delay, the same
+instant `QueueBudget` measures. Sendspin emits each sample `static_delay_ms`
+early to compensate downstream latency; the two must stay in step. That instant
+is a schedule, not a measurement of device buffering or acoustic output, and
+nothing here claims otherwise. Fixture outputs have no sink, so a remote speaker
+or a disabled local endpoint produces no frames at all.
+
+Analysis runs on the audio worker thread — the thread that already decodes and
+allocates, never the CPAL callback — so retained state is bounded no matter how
+far ahead the server streams: a 2048-point window every 21 ms of audio at any sample
+rate, kept as 64 single-byte bands with their deadline, capped at 1600 frames
+(about 34 seconds, covering the decoded queue's 35-second horizon). The
+interface copies one frame under a short lock and renders afterwards; smoothing
+and peak fall are presentation state kept out of the captured bands. Mute is
+honoured because muted output is silent, while the ramped per-player volume
+curve is applied downstream inside Sendspin and is not reproduced.
+
+Frequency mapping is logarithmic over 40 Hz to 16 kHz with a 3 dB/octave
+presentation tilt above 200 Hz and a 66 dB displayed range. A real ALSA null
+output test asserts every accepted buffer reaches the sink with emission
+instants advancing with the audio; analysis, timing, bounds, rendering and the
+empty-state explanations are covered without hardware.
+
 ## Engineering safeguards
 
 - Treat successful command submission separately from confirmed player state.

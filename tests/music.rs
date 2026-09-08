@@ -71,7 +71,7 @@ fn collections_open_and_playback_menu_identifies_speaker_and_queue_behavior() {
     assert_eq!(press(&mut app, KeyCode::Char('P')), Action::None);
     assert!(app.menu.as_ref().unwrap().title.contains("Fixture speaker"));
     assert!(app.menu.as_ref().unwrap().entries[0]
-        .0
+        .label
         .contains("replace queue"));
     assert_eq!(
         press(&mut app, KeyCode::Enter),

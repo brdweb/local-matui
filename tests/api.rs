@@ -290,7 +290,7 @@ async fn search_tracks_with_artist_names() {
     );
 }
 #[tokio::test]
-async fn controls_route_transport_to_active_queue_but_volume_to_player() {
+async fn controls_route_transport_to_the_active_queue() {
     use api::Control;
     for (action, command, args) in [
         (
@@ -313,18 +313,9 @@ async fn controls_route_transport_to_active_queue_but_volume_to_player() {
             "player_queues/seek",
             json!({"queue_id":"leader","position":42}),
         ),
-        (
-            Control::Volume(23),
-            "players/cmd/volume_set",
-            json!({"player_id":"member","volume_level":23}),
-        ),
     ] {
-        let replies = if matches!(action, Control::Volume(_)) {
-            vec![ok(Value::Null)]
-        } else {
-            vec![ok(json!({"queue_id":"leader"})), ok(Value::Null)]
-        };
-        let (url, task) = server(replies).await;
+        // Volume is a player command and goes through `playback_command`.
+        let (url, task) = server(vec![ok(json!({"queue_id":"leader"})), ok(Value::Null)]).await;
         ApiClient::new(&url, "test-secret")
             .unwrap()
             .control("member", action)
@@ -417,7 +408,6 @@ async fn queue_paginates_beyond_first_500_items() {
 #[tokio::test]
 async fn invalid_control_values_are_rejected_before_network() {
     for action in [
-        api::Control::Volume(101),
         api::Control::Seek(-1.0),
         api::Control::Seek(f64::NAN),
         api::Control::Seek(f64::INFINITY),
