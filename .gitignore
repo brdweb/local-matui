@@ -11,3 +11,7 @@ __pycache__/
 *.py[cod]
 .hermes/
 .DS_Store
+.tools/
+target/
+dist/
+config.toml
