@@ -21,8 +21,11 @@ saved; the resulting token is stored in the desktop Secret Service keyring via
 `MATUI_TOKEN` remains available as an environment override for temporary use.
 
 Set the server URL, speaker name and audio output, then select **Test connection
-and save login**. This checks authentication, the server's reported version and
-player-list access before saving. Blank credentials reuse the login for the same
+and save login**. This first checks that the URL returns Music Assistant server information,
+then checks authentication and player-list access before saving. Use the direct
+Music Assistant base URL rather than a Home Assistant dashboard or ingress link.
+A failed test retains the masked token/password so you can correct the URL and
+retry without pasting credentials again. Blank credentials reuse the login for the same
 server. Press Tab/Shift-Tab to move between fields, Ctrl-U to clear a text field,
 and Space to toggle speaker registration or cycle output devices. Use your
 terminal’s paste shortcut (Shift+Insert in this laptop’s Foot configuration).
@@ -136,6 +139,7 @@ uv run --with pyte python tests/terminal_smoke.py target/release/matui
 uv run --with pyte python tests/terminal_smoke.py target/release/matui sigterm
 uv run --with pyte python tests/connected_smoke.py target/release/matui
 uv run --with pyte python tests/settings_smoke.py target/release/matui
+uv run --with pyte python tests/settings_smoke.py target/release/matui token
 cargo test --test audio_null --locked -- --ignored
 cargo test --locked --lib -- --ignored
 # Uses then deletes a disposable synthetic desktop keyring entry:

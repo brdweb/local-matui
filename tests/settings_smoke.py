@@ -20,6 +20,8 @@ import threading
 import time
 import pyte
 
+token_mode = len(sys.argv) > 2 and sys.argv[2] == 'token'
+fail_token_once = token_mode
 prefix = '/prefix/' + 'long-path/' * 40 + 'music-assistant'
 calls = []
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -32,8 +34,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(data)
     def do_GET(self):
         assert self.path == prefix + '/info'
+        assert 'Authorization' not in self.headers
         self.reply({'server_version':'2.10.2', 'schema_version': 40})
     def do_POST(self):
+        global fail_token_once
         req = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
         if self.path == prefix + '/auth/login':
             calls.append('login')
@@ -46,7 +50,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         assert self.path == prefix + '/api'
         assert self.headers['Authorization'] == 'Bearer fixture-token'
         calls.append(req['command'])
-        if req['command'] == 'auth/me': self.reply({'username':'fixture-user'})
+        if req['command'] == 'auth/me' and fail_token_once:
+            fail_token_once = False
+            self.reply({'error':'do not echo fixture-token'}, 405)
+        elif req['command'] == 'auth/me': self.reply({'username':'fixture-user'})
         elif req['command'] == 'players/all': self.reply([{'player_id':'speaker', 'name':'Fixture speaker', 'available':True}])
         else: raise AssertionError(req['command'])
 
@@ -100,10 +107,18 @@ else:
                 assert b'\x1b[?2004h' in output
                 os.write(master,b'\x15')
                 os.write(master,b'\x1b[200~' + f'http://127.0.0.1:{server.server_port}{prefix}\r\n'.encode() + b'\x1b[201~')
-                os.write(master,b'\tfixture-user\twrong-password\t\t\t\t\t\r')
-                visible('Login rejected (HTTP 401)')
-                assert not (tmp/'keyring').exists()
-                os.write(master,b'\t\tfixture-user\t\x1b[200~fixture-password\r\n\x1b[201~\t\t\t\t\t\r')
+                if token_mode:
+                    os.write(master,b'\t\t\t\x1b[200~fixture-token\x1b[201~\t\t\t\t\r')
+                    visible('HTTP 405')
+                    assert not (tmp/'keyring').exists()
+                    assert any('Profile token:' in line and '•' in line for line in screen.display), 'failed test cleared the token'
+                    os.write(master,b'\r')  # Retry the retained token without repasting it.
+                else:
+                    os.write(master,b'\tfixture-user\twrong-password\t\t\t\t\t\r')
+                    visible('Login rejected (HTTP 401)')
+                    assert not (tmp/'keyring').exists()
+                    assert any('Password:' in line and '•' in line for line in screen.display), 'failed test cleared the password'
+                    os.write(master,b'\t\t\t\x15\x1b[200~fixture-password\r\n\x1b[201~\t\t\t\t\t\r')
             visible('Fixture speaker')
             assert b'fixture-password' not in output
             assert b'fixture-token' not in output
@@ -118,6 +133,6 @@ else:
         finally:
             if proc.poll() is None: proc.kill();proc.wait()
             os.close(master);os.close(slave)
-    assert calls.count('login')==2, 'restart should reuse saved credentials'
+    assert calls.count('login')==(0 if token_mode else 2), 'restart should reuse saved credentials'
 server.shutdown()
-print('Settings PTY passed: failed/successful login, masked secrets, long URL/password paste, saved login after restart, live palette reload')
+print(('Token' if token_mode else 'Password') + ' settings PTY passed: failed/successful login, masked secrets, long URL/password paste, saved login after restart, live palette reload')

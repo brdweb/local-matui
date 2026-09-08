@@ -81,7 +81,7 @@ clock invalidation on an actual null-output player.
   `device_name`, then reads `token`. It uses the returned session token rather
   than creating another long-lived token on each settings save. Profile tokens
   support users whose login provider is Home Assistant/OAuth.
-- Authenticate `auth/me`, read `/info` and list players before saving. Preserve
+- Read `/info` without credentials, then authenticate `auth/me` and list players before saving. Preserve
   URL prefixes, disable redirects, bound network/keyring operations, and omit
   response bodies from errors. Never put a password/token in process arguments.
 - `secret-tool` passes tokens via pipes into Secret Service, keyed by server URL
@@ -123,3 +123,10 @@ control characters without turning them into shortcuts or submissions. Oversized
 pastes are rejected atomically so URLs and credentials are not silently truncated.
 PTY tests cover long prefixed URLs, masked password paste, search paste and paste
 mode restoration on normal quit and SIGTERM.
+
+Failed connection tests retain masked form credentials for retry; only the
+worker receives a clone. A token-only PTY fixture returns HTTP 405 once and
+verifies that retry succeeds without repasting or calling the password-login
+endpoint. Server-info preflight rejects HTML/dashboard URLs before API token
+submission. HTTP 405 errors identify the rejected API method and advise checking
+the base URL/proxy route, without echoing response bodies.
