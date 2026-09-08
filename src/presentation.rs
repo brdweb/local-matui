@@ -7,6 +7,27 @@ fn display(text: String) -> String {
     text.chars().filter(|c| !c.is_control()).take(512).collect()
 }
 
+/// MA can expose the embedded Sendspin endpoint behind a universal player.
+/// Select its public player ID, keeping control/queue routing on that wrapper.
+pub fn select_local(app: &mut App, endpoint: &str) -> Option<String> {
+    if app.selected_id.is_some() || !app.connected || endpoint.is_empty() {
+        return None;
+    }
+    let index = app.players.iter().position(|p| {
+        p.available
+            && (p.id == endpoint
+                || p.details["output_protocols"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .any(|v| v["output_protocol_id"].as_str() == Some(endpoint)))
+    })?;
+    let id = app.players[index].id.clone();
+    app.selected_id = Some(id.clone());
+    app.player_cursor = index;
+    Some(id)
+}
+
 /// Apply network snapshots only to the player/query they were requested for.
 pub fn apply(app: &mut App, event: Update) {
     match event {

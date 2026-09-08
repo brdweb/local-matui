@@ -81,6 +81,22 @@ Sources: the versioned server's
 `music_assistant/providers/sendspin/manifest.json` and the official aiosendspin
 9.1.1 distribution's `server/audio.py` and `server/roles/player/v1.py`.
 
+Live testing showed Music Assistant wrapping this Sendspin endpoint in a universal
+player. Automatic selection matches the persistent endpoint against
+`output_protocols[].output_protocol_id` as well as a direct player ID, then uses
+the public wrapper ID for player/queue controls. Display names are not identity
+matches, and an existing user selection is preserved. Source:
+https://github.com/music-assistant/server/blob/2.10.2/music_assistant/providers/universal_player/player.py
+
+With explicit user authorization, the installed build resumed only the existing
+ungrouped local queue, remained available/playing throughout two brief tests,
+and was paused afterward. The final run produced a non-silent signal measured
+from Matui's own PipeWire/PulseAudio sink-input monitor on the configured desktop
+output. Samples stayed in memory and were discarded; no media recording was
+saved. Remote player state/control snapshots were unchanged. A restart also
+verified automatic selection of the universal wrapper. Acoustic latency and
+multi-room synchronization were not measured.
+
 ## Engineering safeguards
 
 - Treat successful command submission separately from confirmed player state.

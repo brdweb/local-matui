@@ -154,14 +154,9 @@ async fn main() -> Result<()> {
                 while let Ok(update) = controller.updates.try_recv() {
                     matui::presentation::apply(app, update);
                 }
-                if app.selected_id.is_none() {
-                    if let Some(player) = app
-                        .players
-                        .iter()
-                        .find(|p| Some(p.id.as_str()) == local_id && p.available)
-                    {
-                        app.selected_id = Some(player.id.clone());
-                        let _ = selection.send(app.selected_id.clone());
+                if let Some(endpoint) = local_id {
+                    if let Some(id) = matui::presentation::select_local(app, endpoint) {
+                        let _ = selection.send(Some(id));
                     }
                 }
                 if let Some(status) = &audio_status {
