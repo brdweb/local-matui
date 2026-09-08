@@ -7,8 +7,9 @@ source of truth for the application.
 
 Rust + Ratatui; controller and embedded local playback in the initial scope.
 Pin sendspin-rs exactly to 0.3.7 (`sendspin = "=0.3.7"`). Music Assistant
-2.10.2 is the target, not a claim of live-tested compatibility. Architecture
-and source references live in `docs/architecture.md`.
+2.10.2 is the target. Live local/remote playback evidence, remaining compatibility
+limits and source references live in `docs/architecture.md`. Beta publication
+commands and gates are in `docs/releasing.md`.
 
 Use `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, and
 `cargo test --all-targets` with Cargo.lock. Keep hardware-free protocol fixtures

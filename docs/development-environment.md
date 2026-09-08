@@ -53,7 +53,7 @@ on its screen, rather than searching the raw byte history. Tests use `uv run
 --with pyte python ...`; Python is not a runtime dependency of Matui.
 
 A successful localhost fixture exchange is not proof of live MA compatibility.
-Before shipping, validate actual MA 2.10.2 authentication, player registration,
+For stable qualification, validate actual MA 2.10.2 authentication, player registration,
 physical-device sound, codec/format changes, server restart and multi-room sync
 with explicit authorization. Retain the exact sendspin 0.3.7 pin during that work.
 
@@ -77,5 +77,7 @@ The user's desktop theme is not changed by these tests.
 
 Local installation uses the two `install -Dm...` commands in README.md. It adds
 a user executable and desktop launcher, with no system service or public release.
-Live server compatibility, endpoint registration, and audible hardware output
-remain unverified until the user's server connection is supplied.
+Subsequent authorized tests confirmed live Music Assistant 2.10.2 connection,
+endpoint registration, remote playback and sustained local output; the user also
+confirmed local playback works. Broader hardware/codec coverage, live server
+restart recovery and multi-room sync remain beta limitations in CHANGELOG.md.
