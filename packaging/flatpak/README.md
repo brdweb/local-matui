@@ -13,7 +13,7 @@ That bundle predates the rename and keeps the `io.github.brdweb.Matui`
 application ID. Bundles built from this tree use `io.github.brdweb.LocalMatui`
 and install alongside it as a separate application with its own settings.
 
-The installer obtains Freedesktop Platform 25.08 from Flathub if needed. This is
+The installer obtains Freedesktop Platform 26.08 from Flathub if needed. This is
 an x86-64 single-file beta bundle, not a Flathub listing or an update repository.
 Install a later downloaded bundle with the same command to update. To remove:
 `flatpak uninstall --user io.github.brdweb.Matui` for the published beta, or
@@ -43,7 +43,7 @@ routes through PulseAudio; use the desktop mixer to select the physical output.
 ## Build and verify
 
 Prerequisites: native release build, `flatpak`, installed
-`org.freedesktop.Platform//25.08`, C compiler, `pkg-config`, libsecret development
+`org.freedesktop.Platform//26.08`, C compiler, `pkg-config`, libsecret development
 headers and `desktop-file-validate`. No flatpak-builder or compiler SDK is needed.
 
 ```sh

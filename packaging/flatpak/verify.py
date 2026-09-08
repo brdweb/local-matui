@@ -58,9 +58,11 @@ def main():
     # Existing real CPAL test connects to an in-process fake audio server. It
     # opens the desktop output and acknowledges commands without audio frames.
     result = run('cargo', 'test', '--test', 'audio_null', '--no-run', '--locked', '--message-format=json')
-    binaries = [json.loads(line).get('executable') for line in result.splitlines()
-                if line.startswith('{') and json.loads(line).get('reason') == 'compiler-artifact']
-    binary = next(Path(path) for path in binaries if path)
+    # Select the test harness itself: cargo also reports the application binary.
+    artifacts = [json.loads(line) for line in result.splitlines() if line.startswith('{')]
+    binary = next(Path(a['executable']) for a in artifacts
+                  if a.get('reason') == 'compiler-artifact' and a.get('executable')
+                  and a['profile']['test'] and a['target']['name'] == 'audio_null')
     print(run('flatpak', 'run', '--user', '--filesystem=' + str(binary) + ':ro',
               '--command=' + str(binary), APP,
               'opens_default_output_silently_and_acknowledges_volume', '--ignored', '--exact'))
