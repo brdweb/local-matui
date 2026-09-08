@@ -1,17 +1,20 @@
 use ratatui::{
     layout::{Constraint, Layout},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Gauge, List, ListItem, ListState, Paragraph},
     Frame,
 };
 
-const AMBER: Color = Color::Rgb(255, 183, 65);
-const MUTED: Color = Color::Rgb(146, 123, 85);
+use crate::theme::Palette;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Action {
     None,
+    OpenSettings,
+    SaveSettings,
+    Command(crate::controls::Command),
+    Prompt(crate::controls::Prompt),
     Quit,
     Refresh,
     Select(String),
@@ -34,6 +37,12 @@ impl App {
         if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
             return Action::Quit;
         }
+        if let Some(settings) = &mut self.settings {
+            return settings.key(key);
+        }
+        if self.menu.is_some() {
+            return crate::controls::key(self, key);
+        }
         if self.editing {
             match key.code {
                 KeyCode::Esc => self.editing = false,
@@ -54,6 +63,11 @@ impl App {
         }
         match key.code {
             KeyCode::Char('q') => Action::Quit,
+            KeyCode::F(2) => Action::OpenSettings,
+            KeyCode::Char('?') | KeyCode::F(1) => {
+                self.menu = Some(crate::controls::Menu::new(self));
+                Action::None
+            }
             KeyCode::Char('/') => {
                 self.editing = true;
                 self.focus = Focus::Search;
@@ -90,6 +104,8 @@ impl App {
                 if let Some(p) = self.players.get(self.player_cursor).filter(|p| p.available) {
                     self.selected_id = Some(p.id.clone());
                     self.queue.clear();
+                    self.queue_id.clear();
+                    self.queue_details = serde_json::Value::Null;
                     self.title = "Loading queue…".into();
                     self.artist.clear();
                     self.elapsed = 0.0;
@@ -111,10 +127,60 @@ impl App {
             KeyCode::Char(' ') => Action::Toggle,
             KeyCode::Char('n') => Action::Next,
             KeyCode::Char('p') => Action::Previous,
+            KeyCode::Char('s') => Action::Command(crate::controls::Command::Player {
+                name: "stop",
+                args: serde_json::json!({}),
+            }),
+            KeyCode::Char('m') => {
+                let muted = self
+                    .players
+                    .iter()
+                    .find(|p| Some(&p.id) == self.selected_id.as_ref())
+                    .and_then(|p| p.details["volume_muted"].as_bool());
+                muted
+                    .map(|v| {
+                        Action::Command(crate::controls::Command::Player {
+                            name: "volume_mute",
+                            args: serde_json::json!({"muted":!v}),
+                        })
+                    })
+                    .unwrap_or(Action::None)
+            }
             KeyCode::Char('+') | KeyCode::Char('=') => Action::Volume(5),
             KeyCode::Char('-') => Action::Volume(-5),
             KeyCode::Left => Action::Seek(-10),
             KeyCode::Right => Action::Seek(10),
+            KeyCode::Enter | KeyCode::Delete | KeyCode::Char('J') | KeyCode::Char('K')
+                if self.focus == Focus::Queue =>
+            {
+                let Some(item) = self
+                    .queue
+                    .get(self.queue_cursor)
+                    .filter(|t| !t.id.is_empty())
+                else {
+                    return Action::None;
+                };
+                let (name, args) = match key.code {
+                    KeyCode::Enter => ("play_index", serde_json::json!({"index":item.id})),
+                    KeyCode::Delete => (
+                        "delete_item",
+                        serde_json::json!({"item_id_or_index":item.id}),
+                    ),
+                    KeyCode::Char('J') => (
+                        "move_item",
+                        serde_json::json!({"queue_item_id":item.id,"pos_shift":1}),
+                    ),
+                    _ => (
+                        "move_item",
+                        serde_json::json!({"queue_item_id":item.id,"pos_shift":-1}),
+                    ),
+                };
+                Action::Command(crate::controls::Command::Queue {
+                    id: self.queue_id.clone(),
+                    name,
+                    args,
+                })
+            }
             KeyCode::Enter | KeyCode::Char('a') if self.focus == Focus::Search => {
                 if let Some(t) = self.results.get(self.search_cursor) {
                     if key.code == KeyCode::Enter {
@@ -133,6 +199,7 @@ impl App {
 
 #[derive(Clone, Default)]
 pub struct PlayerView {
+    pub details: serde_json::Value,
     pub id: String,
     pub name: String,
     pub state: String,
@@ -142,6 +209,7 @@ pub struct PlayerView {
 
 #[derive(Clone, Default)]
 pub struct TrackView {
+    pub id: String,
     pub uri: String,
     pub title: String,
     pub artist: String,
@@ -157,6 +225,12 @@ pub enum Focus {
 }
 
 pub struct App {
+    pub menu: Option<crate::controls::Menu>,
+    pub queue_id: String,
+    pub queue_details: serde_json::Value,
+    pub palette: Palette,
+    pub settings: Option<crate::settings::Settings>,
+    pub exit: bool,
     pub players: Vec<PlayerView>,
     pub queue: Vec<TrackView>,
     pub results: Vec<TrackView>,
@@ -180,6 +254,12 @@ pub struct App {
 impl Default for App {
     fn default() -> Self {
         Self {
+            menu: None,
+            queue_id: String::new(),
+            queue_details: serde_json::Value::Null,
+            palette: Palette::default(),
+            settings: None,
+            exit: false,
             players: vec![],
             queue: vec![],
             results: vec![],
@@ -203,14 +283,28 @@ impl Default for App {
 }
 
 pub fn draw(frame: &mut Frame, app: &mut App) {
+    let palette = app.palette;
+    if let Some(settings) = &app.settings {
+        settings.draw(frame, palette);
+        return;
+    }
+    if app.menu.is_some() {
+        crate::controls::draw(frame, app);
+        return;
+    }
     let area = frame.area();
     frame.render_widget(
-        Block::default().style(Style::default().bg(Color::Black).fg(AMBER)),
+        Block::default().style(
+            Style::default()
+                .bg(palette.background)
+                .fg(palette.foreground),
+        ),
         area,
     );
     if area.width < 50 || area.height < 16 {
         frame.render_widget(
-            Paragraph::new("MATUI\nResize to 50 x 16\nq: quit").style(Style::default().fg(AMBER)),
+            Paragraph::new("MATUI\nResize to 50 x 16\nq: quit")
+                .style(Style::default().fg(palette.accent)),
             area,
         );
         return;
@@ -233,8 +327,8 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
             Span::styled(
                 "  MATUI  ",
                 Style::default()
-                    .fg(Color::Black)
-                    .bg(AMBER)
+                    .fg(palette.background)
+                    .bg(palette.accent)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::raw(format!("  {mode}")),
@@ -242,7 +336,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         .block(
             Block::default()
                 .borders(Borders::BOTTOM)
-                .border_style(Style::default().fg(MUTED)),
+                .border_style(Style::default().fg(palette.secondary)),
         ),
         rows[0],
     );
@@ -253,7 +347,10 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
                 format!("  {}", app.title),
                 Style::default().add_modifier(Modifier::BOLD),
             ),
-            Line::styled(format!("  {}", app.artist), Style::default().fg(MUTED)),
+            Line::styled(
+                format!("  {}", app.artist),
+                Style::default().fg(palette.secondary),
+            ),
         ])
         .block(Block::default().title(" NOW PLAYING ")),
         now[0],
@@ -266,7 +363,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     frame.render_widget(
         Gauge::default()
             .ratio(ratio)
-            .gauge_style(Style::default().fg(AMBER).bg(Color::Rgb(37, 29, 18)))
+            .gauge_style(Style::default().fg(palette.accent).bg(palette.selection))
             .label(format!(
                 "{} / {}",
                 duration(app.elapsed),
@@ -293,7 +390,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
                         },
                         p.volume.map_or("volume —".into(), |v| format!("vol {v}%"))
                     ),
-                    Style::default().fg(MUTED),
+                    Style::default().fg(palette.secondary),
                 ),
             ])
         })
@@ -305,10 +402,11 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     frame.render_stateful_widget(
         List::new(player_items)
             .block(panel(
+                palette,
                 " PLAYERS · Enter to select ",
                 app.focus == Focus::Players,
             ))
-            .highlight_style(Style::default().bg(Color::Rgb(65, 44, 15)).fg(AMBER))
+            .highlight_style(Style::default().bg(palette.selection).fg(palette.accent))
             .highlight_symbol("› "),
         cols[0],
         &mut state,
@@ -323,7 +421,20 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     let title = if search {
         format!(" SEARCH · {} results ", tracks.len())
     } else {
-        format!(" QUEUE · {} items ", tracks.len())
+        let shuffle = if app.queue_details["shuffle_enabled"] == true {
+            "on"
+        } else {
+            "off"
+        };
+        let repeat = match app.queue_details["repeat_mode"].as_str() {
+            Some("all") => "all",
+            Some("one") => "one",
+            _ => "off",
+        };
+        format!(
+            " QUEUE · {} items · shuffle {shuffle} · repeat {repeat} ",
+            tracks.len()
+        )
     };
     let items: Vec<ListItem> = tracks
         .iter()
@@ -336,7 +447,10 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
                     t.title,
                     duration(t.duration)
                 )),
-                Line::styled(format!("     {}", t.artist), Style::default().fg(MUTED)),
+                Line::styled(
+                    format!("     {}", t.artist),
+                    Style::default().fg(palette.secondary),
+                ),
             ])
         })
         .collect();
@@ -347,7 +461,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
             } else {
                 "  Queue is empty or not loaded"
             })
-            .block(panel(&title, app.focus != Focus::Players)),
+            .block(panel(palette, &title, app.focus != Focus::Players)),
             cols[1],
         );
     } else {
@@ -355,8 +469,8 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
             ListState::default().with_selected(Some(cursor.min(tracks.len().saturating_sub(1))));
         frame.render_stateful_widget(
             List::new(items)
-                .block(panel(&title, app.focus != Focus::Players))
-                .highlight_style(Style::default().bg(Color::Rgb(65, 44, 15)))
+                .block(panel(palette, &title, app.focus != Focus::Players))
+                .highlight_style(Style::default().bg(palette.selection))
                 .highlight_symbol("› "),
             cols[1],
             &mut state,
@@ -371,19 +485,23 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         Paragraph::new(message).block(
             Block::default()
                 .borders(Borders::TOP)
-                .border_style(Style::default().fg(MUTED)),
+                .border_style(Style::default().fg(palette.secondary)),
         ),
         rows[3],
     );
-    frame.render_widget(Paragraph::new("Tab pane · ↑↓/jk move · Space pause · n/p skip · +/- volume · ←→ seek\n/ search · Enter play* · a enqueue · Esc queue · r refresh · q quit  (*replaces queue)")
-        .style(Style::default().fg(MUTED)), rows[4]);
+    frame.render_widget(Paragraph::new("Tab pane · ↑↓/jk move · Space pause · n/p skip · +/- volume · ←→ seek\n/ search · Enter play* · a enqueue · Esc queue · r refresh · F2 settings · ? controls · q quit (*replaces queue)")
+        .style(Style::default().fg(palette.secondary)), rows[4]);
 }
 
-fn panel(title: &str, active: bool) -> Block<'_> {
+fn panel(palette: Palette, title: &str, active: bool) -> Block<'_> {
     Block::default()
         .title(title)
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(if active { AMBER } else { MUTED }))
+        .border_style(Style::default().fg(if active {
+            palette.accent
+        } else {
+            palette.secondary
+        }))
 }
 
 pub fn duration(seconds: f64) -> String {

@@ -138,6 +138,7 @@ async fn execute(api: &ApiClient, request: Request) -> anyhow::Result<()> {
         }
         Action::Play(uri) => api.play_uri(&player, &uri).await,
         Action::Enqueue(uri) => api.enqueue_uri(&player, &uri).await,
+        Action::Command(command) => api.playback_command(&player, command).await,
         _ => Ok(()),
     }
 }

@@ -56,3 +56,26 @@ A successful localhost fixture exchange is not proof of live MA compatibility.
 Before shipping, validate actual MA 2.10.2 authentication, player registration,
 physical-device sound, codec/format changes, server restart and multi-room sync
 with explicit authorization. Retain the exact sendspin 0.3.7 pin during that work.
+
+## Omarchy laptop (2026-09-08)
+
+This checkout now builds natively on Omarchy 4.0.2 / Arch x86-64 with Rust/Cargo
+1.98.0. No repository-local sysroot overrides are needed on this machine.
+`cargo build --release --locked` uses the installed ALSA headers and libraries.
+The available devices include `alsa:default` (PipeWire), `alsa:pipewire`,
+`alsa:pulse`, null output and hardware outputs. Device enumeration alone does
+not prove audible playback.
+
+The required Rust format/lint/test checks, PTY demo/connection/settings tests,
+CPAL null-output checks and a disposable real desktop keyring round-trip are the
+laptop validation commands in README.md. The settings fixture uses a temporary
+secret-tool double to prove saved-login reuse on a second application launch;
+the separate opt-in keyring test saves/reads/removes a synthetic credential in
+the actual desktop Secret Service. `NO_COLOR` is removed only from the theme
+smoke-test environment so terminal color assertions can inspect RGB output.
+The user's desktop theme is not changed by these tests.
+
+Local installation uses the two `install -Dm...` commands in README.md. It adds
+a user executable and desktop launcher, with no system service or public release.
+Live server compatibility, endpoint registration, and audible hardware output
+remain unverified until the user's server connection is supplied.

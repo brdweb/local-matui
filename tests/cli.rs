@@ -1,5 +1,4 @@
-#[path = "../src/cli.rs"]
-mod cli;
+use matui::cli;
 
 #[test]
 fn offline_mode_cannot_accidentally_enable_audio() {
@@ -9,8 +8,7 @@ fn offline_mode_cannot_accidentally_enable_audio() {
     assert!(cli::Args::try_parse_from(["matui", "--demo", "--snapshot"]).is_ok());
     assert!(cli::Args::try_parse_from(["matui", "--local", "--remote-only"]).is_err());
 }
-#[path = "../src/config.rs"]
-mod config;
+use matui::config;
 
 #[test]
 fn initializes_private_config_without_overwriting_identity() {

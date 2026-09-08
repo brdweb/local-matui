@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Matui
+GenericName=Music Assistant Player
+Comment=Control Music Assistant and play music on this computer
+Exec=matui
+Icon=audio-speakers
+Terminal=true
+Categories=AudioVideo;Audio;Player;
+Keywords=Music;Music Assistant;Sendspin;

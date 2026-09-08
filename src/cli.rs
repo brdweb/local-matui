@@ -8,6 +8,9 @@ use std::{io::Write, os::unix::fs::OpenOptionsExt, path::Path};
     about = "Music Assistant terminal controller and embedded Sendspin player"
 )]
 pub struct Args {
+    /// Open connection/login and local speaker settings.
+    #[arg(long, conflicts_with_all = ["demo", "init", "list_devices"])]
+    pub setup: bool,
     /// Non-secret configuration file (default: $XDG_CONFIG_HOME/matui/config.toml).
     #[arg(long)]
     pub config: Option<std::path::PathBuf>,

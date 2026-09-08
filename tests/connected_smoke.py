@@ -33,8 +33,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             body = [{"queue_item_id":"item1","name":"Fixture song","duration":200}]
         elif cmd == "music/search":
             body = {"tracks":[{"name":"Search fixture","uri":"library://track/1","artists":[{"name":"Fixture artist"}]}]}
+        elif cmd == "players/cmd/stop":
+            assert req["args"] == {"player_id":"member"}
+            body = None
         else:
-            assert cmd in ("player_queues/play_pause", "player_queues/play_media"), cmd
+            assert cmd in ("player_queues/play_pause", "player_queues/play_media", "player_queues/delete_item"), cmd
             assert req["args"]["queue_id"] == "leader"
             body = None
         data = json.dumps(body).encode()
@@ -81,6 +84,14 @@ with tempfile.TemporaryDirectory(prefix="matui-smoke-") as tmp:
         until(lambda:any(c["command"]=="player_queues/play_media" and c["args"]["option"]=="add" for c in calls))
         os.write(master,b"\r")
         until(lambda:any(c["command"]=="player_queues/play_media" and c["args"]["option"]=="replace" for c in calls))
+        os.write(master,b"?")
+        visible("Controls")
+        os.write(master,b"jj\r")
+        until(lambda:any(c["command"]=="players/cmd/stop" for c in calls))
+        os.write(master,b"\x1b")
+        visible("QUEUE")
+        os.write(master,b"\x1b[3~")
+        until(lambda:any(c["command"]=="player_queues/delete_item" and c["args"]["item_id_or_index"]=="item1" for c in calls))
         os.write(master,b"q")
         assert proc.wait(timeout=5)==0
         assert termios.tcgetattr(slave)==original

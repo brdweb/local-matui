@@ -17,7 +17,7 @@ has been selected yet.
 - Local audio: authenticated WebSocket connection followed by Sendspin, decoding,
   synchronized CPAL output, server volume/mute, stream lifecycle, reconnection.
 - Configuration: non-secret TOML, stable local player identity and device ID.
-  Token supplied separately using MATUI_TOKEN, not a command-line argument.
+  Token stored in Secret Service or supplied using MATUI_TOKEN, never a command-line argument.
 
 Selecting a remote player does not move playback or start local audio. Enabling
 local audio registers an endpoint but does not issue a play command; MA may send
@@ -71,3 +71,48 @@ clock invalidation on an actual null-output player.
 - Treat Linux output backends and device enumeration as a runtime capability;
   fail visibly when unavailable. Do not claim bit-perfect output or sync accuracy
   until measured on actual hardware.
+
+## Laptop controller iteration (2026-09-08)
+
+- Retain Rust/Ratatui and the exact Sendspin 0.3.7 pin. The laptop endpoint is
+  embedded in Matui, active while the application runs; no background service.
+- The settings screen is limited to connection/login and the local endpoint.
+  Built-in login uses POST `/auth/login` with `provider_id`, `credentials`, and
+  `device_name`, then reads `token`. It uses the returned session token rather
+  than creating another long-lived token on each settings save. Profile tokens
+  support users whose login provider is Home Assistant/OAuth.
+- Authenticate `auth/me`, read `/info` and list players before saving. Preserve
+  URL prefixes, disable redirects, bound network/keyring operations, and omit
+  response bodies from errors. Never put a password/token in process arguments.
+- `secret-tool` passes tokens via pipes into Secret Service, keyed by server URL
+  and persistent player identity. MATUI_TOKEN overrides lookup for that run.
+  Config updates are private, atomic file replacements. Settings/network work
+  runs on runtime workers while the terminal remains responsive.
+- Theme updates reopen the palette path every 500 ms. This laptop's installed
+  `/usr/share/omarchy/bin/omarchy-theme-set` uses
+  `$HOME/.local/state/omarchy/current/theme/colors.toml`; the older config path
+  is a fallback. No packaged Omarchy files, theme hooks or desktop settings are
+  edited. Transient missing/invalid palettes retain the last valid colors.
+- Playback menus expose player transport separately from MA queue transport,
+  group/source/sound-mode choices, runtime player options, sleep timers and
+  queue operations. They exclude server/provider/user administration. Queue
+  edits carry the displayed queue ID and compare it with fresh active-queue
+  ownership before mutation. Numeric entry rejects NaN, infinity, fractions for
+  integer controls and out-of-range values.
+- Search aggregates playable media types, with 50 results per type; no dedicated
+  library browser. Player capabilities and server command failures remain visible.
+
+Additional official integration sources inspected:
+
+- https://github.com/music-assistant/server/blob/2.10.2/music_assistant/controllers/webserver/controller.py
+- https://github.com/music-assistant/server/blob/2.10.2/music_assistant/controllers/webserver/auth.py
+- https://github.com/music-assistant/server/blob/2.10.2/music_assistant/controllers/players/controller.py
+- https://github.com/music-assistant/server/blob/2.10.2/music_assistant/controllers/player_queues/controller.py
+- https://github.com/music-assistant/server/blob/2.10.2/music_assistant/controllers/music/controller.py
+- https://github.com/music-assistant/client/blob/main/music_assistant_client/players.py
+- https://github.com/music-assistant/models/blob/main/music_assistant_models/player.py
+- https://www.music-assistant.io/player-support/sendspin/
+
+The unversioned client/model references supplement the versioned server handlers;
+server tag 2.10.2 defines command compatibility. Fixture success does not establish
+compatibility with an unknown live server version.

@@ -1,6 +1,6 @@
-#[path = "../src/api.rs"]
-mod api;
 use api::ApiClient;
+use matui::api;
+use matui::controls::Command;
 use serde_json::{json, Value};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -47,6 +47,112 @@ async fn server(replies: Vec<(u16, String)>) -> (String, tokio::task::JoinHandle
         requests
     });
     (url, task)
+}
+
+#[tokio::test]
+async fn queue_edits_are_bound_to_displayed_queue_and_player_commands_are_direct() {
+    let (url, task) = server(vec![ok(json!({"queue_id":"new-leader"}))]).await;
+    let api = ApiClient::new(&url, "test-secret").unwrap();
+    assert!(api
+        .playback_command(
+            "member",
+            Command::Queue {
+                id: "old-leader".into(),
+                name: "delete_item",
+                args: json!({"item_id_or_index":"item"})
+            }
+        )
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("changed"));
+    assert_eq!(task.await.unwrap().len(), 1);
+    for (name, args) in [
+        ("volume_mute", json!({"muted":true})),
+        ("power", json!({"powered":false})),
+        ("group", json!({"target_player":"leader"})),
+        ("sleep_timer/set", json!({"seconds":900})),
+    ] {
+        let (url, task) = server(vec![ok(Value::Null)]).await;
+        ApiClient::new(&url, "test-secret")
+            .unwrap()
+            .playback_command(
+                "member",
+                Command::Player {
+                    name,
+                    args: args.clone(),
+                },
+            )
+            .await
+            .unwrap();
+        let request = task.await.unwrap().remove(0);
+        assert_eq!(request["args"]["player_id"], "member");
+        for (key, value) in args.as_object().unwrap() {
+            assert_eq!(&request["args"][key], value);
+        }
+        assert_eq!(
+            request["command"],
+            if name.contains('/') {
+                format!("players/{name}")
+            } else {
+                format!("players/cmd/{name}")
+            }
+        );
+    }
+}
+
+#[tokio::test]
+async fn queue_edit_envelopes_and_transfer_resolve_group_leaders() {
+    for (name, args) in [
+        ("shuffle", json!({"shuffle_enabled":true})),
+        ("repeat", json!({"repeat_mode":"all"})),
+        ("play_index", json!({"index":"item"})),
+        ("move_item", json!({"queue_item_id":"item","pos_shift":-1})),
+        ("delete_item", json!({"item_id_or_index":"item"})),
+        ("clear", json!({})),
+    ] {
+        let (url, task) = server(vec![ok(json!({"queue_id":"leader"})), ok(Value::Null)]).await;
+        ApiClient::new(&url, "test-secret")
+            .unwrap()
+            .playback_command(
+                "member",
+                Command::Queue {
+                    id: "leader".into(),
+                    name,
+                    args: args.clone(),
+                },
+            )
+            .await
+            .unwrap();
+        let requests = task.await.unwrap();
+        assert_eq!(requests[1]["command"], format!("player_queues/{name}"));
+        assert_eq!(requests[1]["args"]["queue_id"], "leader");
+        for (key, value) in args.as_object().unwrap() {
+            assert_eq!(&requests[1]["args"][key], value);
+        }
+    }
+    let (url, task) = server(vec![
+        ok(json!({"queue_id":"source"})),
+        ok(json!({"queue_id":"target-leader"})),
+        ok(Value::Null),
+    ])
+    .await;
+    ApiClient::new(&url, "test-secret")
+        .unwrap()
+        .playback_command(
+            "member",
+            Command::Transfer {
+                source: "source".into(),
+                target: "target-member".into(),
+            },
+        )
+        .await
+        .unwrap();
+    let requests = task.await.unwrap();
+    assert_eq!(
+        requests[2]["args"],
+        json!({"source_queue_id":"source","target_queue_id":"target-leader"})
+    );
 }
 #[test]
 fn rejects_unsafe_urls_and_tokens_without_echoing_them() {
@@ -118,7 +224,7 @@ async fn queue_resolves_group_owner_and_loads_items() {
 #[tokio::test]
 async fn search_tracks_with_artist_names() {
     let (url, task) = server(vec![ok(
-        json!({"tracks":[{"uri":"library://track/1","name":"Song","artists":[{"name":"Artist"}]}]}),
+        json!({"tracks":[{"uri":"library://track/1","name":"Song","artists":[{"name":"Artist"}]}], "albums":[{"uri":"library://album/2","name":"Album name"}], "playlists":[{"uri":"library://playlist/3","name":"Playlist name"}]}),
     )])
     .await;
     let t = ApiClient::new(&url, "test-secret")
@@ -130,11 +236,14 @@ async fn search_tracks_with_artist_names() {
         (&*t[0].uri, &*t[0].title, &*t[0].artist),
         ("library://track/1", "Song", "Artist")
     );
+    assert_eq!(t[1].uri, "library://album/2");
+    assert_eq!(t[1].title, "[Album] Album name");
+    assert_eq!(t[2].uri, "library://playlist/3");
     let r = task.await.unwrap();
     assert_eq!(r[0]["command"], "music/search");
     assert_eq!(
         r[0]["args"],
-        json!({"search_query":"Song","media_types":["track"],"limit":50})
+        json!({"search_query":"Song","media_types":["track","album","artist","playlist","radio","audiobook","podcast"],"limit":50})
     );
 }
 #[tokio::test]

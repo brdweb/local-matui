@@ -6,8 +6,9 @@ pkgrel=1
 pkgdesc='Terminal controller and embedded Sendspin player for Music Assistant (development build)'
 arch=('x86_64')
 license=('custom')
-depends=('glibc>=@GLIBC@' 'gcc-libs' 'alsa-lib' 'ca-certificates')
-optdepends=('pipewire-alsa: route ALSA output through PipeWire on Omarchy')
+depends=('glibc>=@GLIBC@' 'gcc-libs' 'alsa-lib' 'ca-certificates' 'libsecret')
+optdepends=('pipewire-alsa: route ALSA output through PipeWire on Omarchy'
+            'gnome-keyring: desktop Secret Service for saved logins')
 options=('!strip' '!debug')
 source=('matui' 'README.md' 'INSTALL.txt' 'THIRD-PARTY-NOTICES.tar.gz' 'DEVELOPMENT-STATUS')
 sha256sums=(@SHA256SUMS@)

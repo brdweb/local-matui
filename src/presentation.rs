@@ -15,6 +15,7 @@ pub fn apply(app: &mut App, event: Update) {
             app.players = players
                 .into_iter()
                 .map(|p| PlayerView {
+                    details: p.details,
                     id: p.id,
                     name: display(p.name),
                     state: display(p.state),
@@ -33,6 +34,9 @@ pub fn apply(app: &mut App, event: Update) {
         Update::Queue(id, result) if app.selected_id.as_deref() == Some(id.as_str()) => {
             match result {
                 Ok(queue) => {
+                    let highlighted = app.queue.get(app.queue_cursor).map(|t| t.id.clone());
+                    app.queue_id = queue.id;
+                    app.queue_details = queue.details;
                     app.title = if queue.current_title.is_empty() {
                         "Nothing playing".into()
                     } else {
@@ -45,15 +49,20 @@ pub fn apply(app: &mut App, event: Update) {
                         .items
                         .into_iter()
                         .map(|t| TrackView {
+                            id: t.id,
                             title: display(t.title),
                             artist: display(t.artist),
                             duration: t.duration,
                             ..Default::default()
                         })
                         .collect();
-                    app.queue_cursor = app.queue_cursor.min(app.queue.len().saturating_sub(1));
+                    app.queue_cursor = highlighted
+                        .and_then(|id| app.queue.iter().position(|t| t.id == id))
+                        .unwrap_or(app.queue_cursor.min(app.queue.len().saturating_sub(1)));
                 }
                 Err(error) => {
+                    app.queue_id.clear();
+                    app.queue_details = serde_json::Value::Null;
                     app.queue.clear();
                     app.title = "Queue unavailable".into();
                     app.artist.clear();
@@ -75,7 +84,10 @@ pub fn apply(app: &mut App, event: Update) {
                     })
                     .collect();
                 app.search_cursor = 0;
-                app.status = format!("Search complete · {} tracks (up to 50)", app.results.len());
+                app.status = format!(
+                    "Search complete · {} results (up to 50 per type)",
+                    app.results.len()
+                );
             }
             Err(error) => {
                 app.results.clear();
