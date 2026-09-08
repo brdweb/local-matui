@@ -2,6 +2,7 @@
 """Wrap the staged native beta in a Flatpak; no host configuration is copied."""
 import hashlib
 import json
+import re
 import shlex
 import shutil
 import subprocess
@@ -15,7 +16,7 @@ WORK = ROOT / '.tools/flatpak-package'
 STAGE = ROOT / '.tools/arch-package'
 APP = 'io.github.brdweb.LocalMatui'
 RUNTIME = 'org.freedesktop.Platform'
-BRANCH = '25.08'
+BRANCH = '26.08'
 SOURCE_URL = 'https://download.gnome.org/sources/libsecret/0.21/libsecret-0.21.7.tar.xz'
 SOURCE_SHA256 = '6b452e4750590a2b5617adc40026f28d2f4903de15f1250e1d1c40bfd68ed55e'
 FINISH_ARGS = [
@@ -33,11 +34,31 @@ def sha(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def version_tuple(text, pattern):
+    return max(tuple(map(int, m)) for m in re.findall(pattern, text))
+
+
+def check_runtime_compatibility(binary):
+    """The bundle ships a host-built executable, so the build host's glibc must
+    not be newer than the runtime's. Report that directly instead of leaving a
+    missing-symbol failure to the first sandboxed run."""
+    needs = version_tuple(run('readelf', '--version-info', str(binary)), r'GLIBC_(\d+)\.(\d+)')
+    provides = version_tuple(
+        run('flatpak', 'run', '--command=getconf', f'{RUNTIME}//{BRANCH}', 'GNU_LIBC_VERSION'),
+        r'glibc (\d+)\.(\d+)')
+    assert needs <= provides, (
+        f'The staged executable needs glibc {needs[0]}.{needs[1]}, but '
+        f'{RUNTIME}//{BRANCH} provides {provides[0]}.{provides[1]}. Build it on a host '
+        'whose glibc is no newer than the runtime, or raise BRANCH to a runtime that '
+        'matches this host.')
+
+
 def main():
     version = tomllib.loads((ROOT / 'Cargo.toml').read_text())['package']['version']
     assert (STAGE / 'VERSION').read_text().strip() == version
     assert sha(STAGE / 'local-matui') == sha(ROOT / 'target/release/local-matui')
     assert sha(STAGE / 'LICENSE') == sha(ROOT / 'LICENSE'), 'Staged license is stale'
+    check_runtime_compatibility(STAGE / 'local-matui')
     WORK.mkdir(parents=True, exist_ok=True)
     build = WORK / 'build'
     if build.exists():
