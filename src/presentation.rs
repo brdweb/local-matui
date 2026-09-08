@@ -23,7 +23,7 @@ pub fn select_local(app: &mut App, endpoint: &str) -> Option<String> {
     Some(id)
 }
 
-/// Whether a player is Matui's own endpoint, directly or as the universal
+/// Whether a player is Local Matui's own endpoint, directly or as the universal
 /// wrapper MA puts in front of it. Display names are never identity matches.
 pub fn matches_endpoint(player: &PlayerView, endpoint: &str) -> bool {
     !endpoint.is_empty()

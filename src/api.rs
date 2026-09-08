@@ -72,7 +72,7 @@ impl ApiClient {
             .http
             .post(endpoint)
             .json(&json!({
-                "provider_id":"builtin", "device_name":"Matui",
+                "provider_id":"builtin", "device_name":"Local Matui",
                 "credentials":{"username":username,"password":password}
             }))
             .send()
@@ -173,7 +173,7 @@ impl ApiClient {
             .http
             .post(self.endpoint.clone())
             .bearer_auth(&self.token)
-            .json(&json!({"message_id":"matui", "command":command,"args":args}))
+            .json(&json!({"message_id":"local-matui", "command":command,"args":args}))
             .send()
             .await
             .map_err(|_| anyhow!("Music Assistant connection failed"))?;

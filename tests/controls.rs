@@ -1,5 +1,5 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use matui::{
+use local_matui::{
     controls::{Command, InputKind, Menu, Prompt},
     ui::{Action, App, Focus, PlayerView, TrackView},
 };
@@ -106,7 +106,7 @@ fn numeric_prompts_reject_nan_out_of_range_and_fractional_volume() {
 /// A long menu is grouped and searchable; filtering never runs an action.
 #[test]
 fn the_controls_menu_filters_without_triggering_anything() {
-    use matui::ui::Focus;
+    use local_matui::ui::Focus;
     let mut app = App {
         connected: true,
         selected_id: Some("one".into()),
@@ -208,7 +208,7 @@ fn preview() {
     app.menu = Some(Menu::new(&app));
     let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(90, 26)).unwrap();
     terminal
-        .draw(|frame| matui::ui::draw(frame, &mut app))
+        .draw(|frame| local_matui::ui::draw(frame, &mut app))
         .unwrap();
     for row in terminal.backend().buffer().content.chunks(90) {
         println!("{}", row.iter().map(|c| c.symbol()).collect::<String>());

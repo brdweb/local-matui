@@ -128,7 +128,7 @@ impl Settings {
         ])
         .margin(1)
         .split(area);
-        frame.render_widget(Paragraph::new("MATUI · CONNECTION SETTINGS\nTab/Shift-Tab fields · Ctrl-U clear · Space toggles · Esc cancel"), rows[0]);
+        frame.render_widget(Paragraph::new("LOCAL-MATUI · CONNECTION SETTINGS\nTab/Shift-Tab fields · Ctrl-U clear · Space toggles · Esc cancel"), rows[0]);
         let device = self
             .config
             .device_id
@@ -187,7 +187,7 @@ impl Settings {
                 *row,
             );
         }
-        frame.render_widget(Paragraph::new(format!("{}\n\nTokens are saved in the desktop keyring. Passwords are never saved.\nBlank credentials reuse the saved login for the same server.\nHTTP sends credentials without encryption; use HTTPS outside a trusted LAN.\nEnabling the speaker lets Music Assistant send audio while Matui is open.", self.message))
+        frame.render_widget(Paragraph::new(format!("{}\n\nTokens are saved in the desktop keyring. Passwords are never saved.\nBlank credentials reuse the saved login for the same server.\nHTTP sends credentials without encryption; use HTTPS outside a trusted LAN.\nEnabling the speaker lets Music Assistant send audio while Local Matui is open.", self.message))
             .wrap(ratatui::widgets::Wrap { trim: false }).block(Block::default().borders(Borders::TOP)), rows[2]);
     }
 }

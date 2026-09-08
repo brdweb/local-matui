@@ -1,5 +1,5 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use matui::{
+use local_matui::{
     music::{Browser, Kind, Media, Target},
     ui::{Action, App, Focus, PlayerView, TrackView},
 };

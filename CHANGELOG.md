@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Rename the project to **local-matui** to avoid clashing with other projects:
+  the command, crate, Arch package, desktop entry and repository are now
+  `local-matui`, the Flatpak application ID is `io.github.brdweb.LocalMatui`,
+  settings live in `local-matui/config.toml` and the token override is
+  `LOCAL_MATUI_TOKEN`. Existing installations keep working without re-entering
+  credentials: a pre-rename `matui/config.toml`, keyring entry and `MATUI_TOKEN`
+  are still read while no current equivalent exists. Nothing is copied, moved or
+  deleted, and Music Assistant sees a new speaker identity only if you create
+  one. Release v0.1.0-beta.1 remains published under the former name.
+
 - Rework the controls and layout: the queue stays beside the music browser, the
   header carries transport state, volume, mute and shuffle/repeat, and the hint
   lines follow the focused pane. **p** is now play/pause with tracks on
@@ -12,7 +22,7 @@
   position, so neither issues a request per keystroke.
 - Group the controls menu under headings and add **/** to filter it.
 
-- Add a spectrum visualizer over Matui's own local playback, as a panel or a
+- Add a spectrum visualizer over Local Matui's own local playback, as a panel or a
   full-screen view, cycled with **v**. Analysis uses only decoded samples this
   process is scheduled to emit; a remote speaker, disabled local audio or muted
   output shows the reason rather than invented motion.

@@ -17,6 +17,7 @@ master, slave = pty.openpty()
 fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 110, 0, 0))
 original = termios.tcgetattr(slave)
 env = dict(os.environ, TERM="xterm-256color")
+env.pop("LOCAL_MATUI_TOKEN", None)
 env.pop("MATUI_TOKEN", None)
 proc = subprocess.Popen([sys.argv[1], "--demo"], stdin=slave, stdout=slave, stderr=slave, env=env)
 output = bytearray()
@@ -38,7 +39,7 @@ def until(marker):
     raise AssertionError(f"Missing {marker!r}; exit={proc.poll()}, screen={screen.display!r}")
 
 try:
-    until(b"MATUI")
+    until(b"LOCAL-MATUI")
     os.write(master, b"/")
     until(b"Search:")
     # Ratatui emits incremental cell updates, not a contiguous query string.
@@ -48,7 +49,7 @@ try:
     os.write(master, b"\r")
     until(b"Demo search")
     if len(sys.argv) > 2 and sys.argv[2] == "sigterm":
-        if app_id := os.environ.get("MATUI_TEST_FLATPAK_APP"):
+        if app_id := os.environ.get("LOCAL_MATUI_TEST_FLATPAK_APP"):
             # flatpak run is a launcher; signal the actual sandboxed app.
             rows = subprocess.check_output(
                 ["flatpak", "ps", "--columns=application,child-pid"], text=True
@@ -63,7 +64,7 @@ try:
                 try:
                     comm = Path(f"/proc/{pid}/comm").read_text().strip()
                     args = Path(f"/proc/{pid}/cmdline").read_bytes()
-                    if comm == "matui" and b"--demo" in args:
+                    if comm == "local-matui" and b"--demo" in args:
                         apps.append(pid)
                     pending.extend(map(int, Path(f"/proc/{pid}/task/{pid}/children").read_text().split()))
                 except FileNotFoundError:

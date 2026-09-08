@@ -1,8 +1,8 @@
 [Desktop Entry]
 Type=Application
-Name=Matui (Flatpak Beta)
+Name=Local Matui (Flatpak Beta)
 Comment=Music Assistant controller and local speaker
-Exec=matui
+Exec=local-matui
 Icon=audio-speakers
 Terminal=true
 Categories=AudioVideo;Audio;Player;

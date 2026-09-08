@@ -1137,6 +1137,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 
 [[package]]
+name = "local-matui"
+version = "0.1.0-beta.1"
+dependencies = [
+ "anyhow",
+ "base64",
+ "clap",
+ "cpal",
+ "crossterm 0.29.0",
+ "futures-util",
+ "parking_lot",
+ "ratatui",
+ "reqwest",
+ "sendspin",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-tungstenite",
+ "toml",
+ "url",
+ "uuid",
+]
+
+[[package]]
 name = "lock_api"
 version = "0.4.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1180,29 +1203,6 @@ name = "mach2"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dae608c151f68243f2b000364e1f7b186d9c29845f7d2d85bd31b9ad77ad552b"
-
-[[package]]
-name = "matui"
-version = "0.1.0-beta.1"
-dependencies = [
- "anyhow",
- "base64",
- "clap",
- "cpal",
- "crossterm 0.29.0",
- "futures-util",
- "parking_lot",
- "ratatui",
- "reqwest",
- "sendspin",
- "serde",
- "serde_json",
- "tokio",
- "tokio-tungstenite",
- "toml",
- "url",
- "uuid",
-]
 
 [[package]]
 name = "md5"

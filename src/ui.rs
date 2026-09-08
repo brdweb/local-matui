@@ -83,7 +83,7 @@ impl App {
                 }
             ),
             Some(player) => format!("no local audio · playing on {}", player.name),
-            None => "no local audio · select Matui's own speaker".into(),
+            None => "no local audio · select Local Matui's own speaker".into(),
         }
     }
 
@@ -186,7 +186,8 @@ impl App {
             KeyCode::Char('v') => {
                 if self.spectrum.is_none() {
                     self.status =
-                        "Visualizer needs Matui's own speaker: enable local audio (F2)".into();
+                        "Visualizer needs Local Matui's own speaker: enable local audio (F2)"
+                            .into();
                 } else {
                     self.visualizer.mode = self.visualizer.mode.next();
                 }
@@ -439,10 +440,10 @@ pub enum Focus {
 
 pub struct App {
     pub music: crate::music::Browser,
-    /// Decoded local samples, when Matui itself is a speaker this run.
+    /// Decoded local samples, when Local Matui itself is a speaker this run.
     pub spectrum: Option<crate::visualizer::Analyzer>,
     pub visualizer: crate::visualizer::Meter,
-    /// Persistent identity of Matui's own endpoint, for explaining an empty
+    /// Persistent identity of Local Matui's own endpoint, for explaining an empty
     /// visualizer when a different speaker is selected.
     pub local_endpoint: Option<String>,
     pub content: Focus,
@@ -529,7 +530,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     );
     if area.width < 50 || area.height < 16 {
         frame.render_widget(
-            Paragraph::new("MATUI\nResize to 50 x 16\nq: quit")
+            Paragraph::new("LOCAL-MATUI\nResize to 50 x 16\nq: quit")
                 .style(Style::default().fg(palette.accent)),
             area,
         );
@@ -557,7 +558,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     frame.render_widget(
         Paragraph::new(Line::from(vec![
             Span::styled(
-                "  MATUI  ",
+                "  LOCAL-MATUI  ",
                 Style::default()
                     .fg(palette.background)
                     .bg(palette.accent)
@@ -878,14 +879,14 @@ fn spectrum(app: &mut App, width: u16) -> Option<String> {
         Some(Ok(_)) => None,
         Some(Err("no local audio")) => Some(app.silence()),
         Some(Err(reason)) => Some(reason.into()),
-        None => Some("local audio is off · Matui is not a speaker this run".into()),
+        None => Some("local audio is off · Local Matui is not a speaker this run".into()),
     }
 }
 
 /// The visualizer replacing the browser/queue pane.
 fn draw_spectrum_panel(frame: &mut Frame, app: &mut App, area: Rect) {
     let palette = app.palette;
-    let block = panel(palette, " SPECTRUM · Matui's own output ", true);
+    let block = panel(palette, " SPECTRUM · Local Matui's own output ", true);
     let inner = block.inner(area);
     frame.render_widget(block, area);
     let rows = Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).split(inner);

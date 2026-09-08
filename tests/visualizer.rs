@@ -1,6 +1,6 @@
 //! Spectrum analysis and visualizer presentation. Signals here are generated
 //! in the test, not captured from any device or personal media.
-use matui::visualizer::{self, Analyzer, Meter, Mode, Spectrum, BANDS, WINDOW};
+use local_matui::visualizer::{self, Analyzer, Meter, Mode, Spectrum, BANDS, WINDOW};
 use std::time::{Duration, Instant};
 
 const RATE: u32 = 48_000;
@@ -213,7 +213,7 @@ fn drawn(width: u16, height: u16, meter: &Meter, reason: Option<&str>) -> String
             visualizer::render(
                 frame,
                 frame.area(),
-                matui::theme::Palette::default(),
+                local_matui::theme::Palette::default(),
                 meter,
                 reason,
             )
@@ -309,12 +309,12 @@ fn preview() {
         .collect();
     analyzer.push(&mixed, 2, RATE, now - Duration::from_millis(100));
 
-    let mut app = matui::ui::App {
+    let mut app = local_matui::ui::App {
         spectrum: Some(analyzer),
         connected: true,
         selected_id: Some("local".into()),
         local_endpoint: Some("local".into()),
-        players: vec![matui::ui::PlayerView {
+        players: vec![local_matui::ui::PlayerView {
             id: "local".into(),
             name: "This computer".into(),
             available: true,
@@ -336,7 +336,7 @@ fn preview() {
         // Two frames: the meter needs one to rise before it is drawn.
         for _ in 0..2 {
             terminal
-                .draw(|frame| matui::ui::draw(frame, &mut app))
+                .draw(|frame| local_matui::ui::draw(frame, &mut app))
                 .unwrap();
         }
         println!("\n=== {mode:?} ===");
@@ -350,7 +350,7 @@ fn preview() {
 /// same analyzer the interface reads.
 #[test]
 fn the_analyzer_is_the_sink_the_audio_output_writes_to() {
-    use matui::audio::SampleSink;
+    use local_matui::audio::SampleSink;
     let analyzer = Analyzer::new();
     let sink: &dyn SampleSink = &analyzer;
     let now = Instant::now();

@@ -4,15 +4,20 @@ use anyhow::{bail, Context, Result};
 use std::{process::Stdio, time::Duration};
 use tokio::{io::AsyncWriteExt, process::Command};
 
-async fn invoke(server: &str, id: &str, token: Option<&str>) -> Result<String> {
+/// Keyring attribute identifying this application's entries.
+const APPLICATION: &str = "local-matui";
+/// Entries stored before the rename; read, never written.
+const LEGACY_APPLICATION: &str = "matui";
+
+async fn invoke(application: &str, server: &str, id: &str, token: Option<&str>) -> Result<String> {
     let mut command = Command::new("secret-tool");
     if token.is_some() {
-        command.args(["store", "--label=Matui Music Assistant"]);
+        command.args(["store", "--label=Local Matui Music Assistant"]);
     } else {
         command.arg("lookup");
     }
     command
-        .args(["application", "matui", "server", server, "player", id])
+        .args(["application", application, "server", server, "player", id])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -44,9 +49,19 @@ async fn invoke(server: &str, id: &str, token: Option<&str>) -> Result<String> {
         .context("Keyring timed out; unlock the desktop keyring and retry")?
 }
 
+/// Look up the current entry, then a pre-rename one for the same server and
+/// player. Report the current lookup's error so a locked or missing keyring is
+/// still described accurately.
 pub async fn load(server: &str, id: &str) -> Result<String> {
-    invoke(server, id, None).await
+    match invoke(APPLICATION, server, id, None).await {
+        Ok(token) => Ok(token),
+        Err(error) => invoke(LEGACY_APPLICATION, server, id, None)
+            .await
+            .map_err(|_| error),
+    }
 }
 pub async fn save(server: &str, id: &str, token: &str) -> Result<()> {
-    invoke(server, id, Some(token)).await.map(|_| ())
+    invoke(APPLICATION, server, id, Some(token))
+        .await
+        .map(|_| ())
 }

@@ -1,6 +1,6 @@
 use anyhow::{bail, Context, Result};
 use clap::Parser;
-use matui::{
+use local_matui::{
     cli::Args,
     ui::{self, App, PlayerView, TrackView},
 };
@@ -39,17 +39,17 @@ fn demo() -> App {
 async fn main() -> Result<()> {
     let args = Args::parse();
     if args.init {
-        let path = config_path(args.config)?;
-        matui::cli::initialize(&path)?;
+        let path = local_matui::cli::config_path(args.config)?;
+        local_matui::cli::initialize(&path)?;
         println!(
-            "Created {}. Run matui --setup to configure the server, login and local speaker.",
+            "Created {}. Run local-matui --setup to configure the server, login and local speaker.",
             path.display()
         );
         return Ok(());
     }
     if args.demo && args.snapshot {
         let mut app = demo();
-        matui::theme::reload(&mut app.palette, &matui::theme::paths());
+        local_matui::theme::reload(&mut app.palette, &local_matui::theme::paths());
         let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(110, 30))?;
         terminal.draw(|f| ui::draw(f, &mut app))?;
         for row in terminal.backend().buffer().content.chunks(110) {
@@ -58,7 +58,7 @@ async fn main() -> Result<()> {
         return Ok(());
     }
     if args.demo {
-        return matui::terminal_ui::run(
+        return local_matui::terminal_ui::run(
             demo(),
             |_| {},
             |app, action| {
@@ -71,8 +71,10 @@ async fn main() -> Result<()> {
                         .collect();
                     app.status = "Demo search complete (fictional offline data)".into();
                 } else if let ui::Action::Browse { generation, target } = action {
-                    app.music
-                        .apply(generation, Ok((matui::music::demo_listing(&target), None)));
+                    app.music.apply(
+                        generation,
+                        Ok((local_matui::music::demo_listing(&target), None)),
+                    );
                 } else {
                     app.status = "Offline demo: no command was sent".into();
                 }
@@ -81,7 +83,7 @@ async fn main() -> Result<()> {
         .map(|_| ());
     }
     if args.list_devices {
-        let devices = matui::audio::devices()?;
+        let devices = local_matui::audio::devices()?;
         if devices.is_empty() {
             println!("No usable audio output devices found");
         }
@@ -93,20 +95,23 @@ async fn main() -> Result<()> {
     if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
         bail!("An interactive terminal is required; use --demo --snapshot for plain output");
     }
-    let path = config_path(args.config)?;
+    let path = local_matui::cli::config_path(args.config)?;
     let mut config = if path.exists() {
-        matui::config::Config::parse(
+        local_matui::config::Config::parse(
             &std::fs::read_to_string(&path).context("Cannot read configuration")?,
         )?
     } else {
-        matui::config::Config {
+        local_matui::config::Config {
             local_playback: true,
             ..Default::default()
         }
     };
-    let mut token = std::env::var("MATUI_TOKEN").ok();
+    // MATUI_TOKEN stays readable for setups configured before the rename.
+    let mut token = std::env::var("LOCAL_MATUI_TOKEN")
+        .or_else(|_| std::env::var("MATUI_TOKEN"))
+        .ok();
     if token.is_none() && path.exists() {
-        token = matui::credentials::load(&config.server, &config.player_id)
+        token = local_matui::credentials::load(&config.server, &config.player_id)
             .await
             .ok();
     }
@@ -114,7 +119,7 @@ async fn main() -> Result<()> {
     loop {
         if setup {
             if let Some((next_config, next_token)) =
-                matui::settings::run(config.clone(), token.clone(), &path)?
+                local_matui::settings::run(config.clone(), token.clone(), &path)?
             {
                 config = next_config;
                 token = Some(next_token);
@@ -125,12 +130,12 @@ async fn main() -> Result<()> {
         let Some(token_value) = token.as_ref() else {
             return Ok(());
         };
-        let api = matui::api::ApiClient::new(&config.server, token_value)?;
+        let api = local_matui::api::ApiClient::new(&config.server, token_value)?;
         // The visualizer analyzes only what this endpoint plays.
-        let spectrum = matui::visualizer::Analyzer::new();
+        let spectrum = local_matui::visualizer::Analyzer::new();
         let audio = if (args.local || config.local_playback) && !args.remote_only {
-            Some(matui::audio::start(
-                matui::audio::AudioConfig {
+            Some(local_matui::audio::start(
+                local_matui::audio::AudioConfig {
                     server: config.server.clone(),
                     token: token_value.clone(),
                     player_id: config.player_id.clone(),
@@ -144,7 +149,7 @@ async fn main() -> Result<()> {
         } else {
             None
         };
-        let mut controller = matui::controller::Controller::start(api);
+        let mut controller = local_matui::controller::Controller::start(api);
         let requests = controller.requests.clone();
         let selection = controller.selection.clone();
         let audio_status = audio.as_ref().map(|a| a.status.clone());
@@ -153,7 +158,7 @@ async fn main() -> Result<()> {
         } else {
             None
         };
-        let result = matui::terminal_ui::run(
+        let result = local_matui::terminal_ui::run(
             App {
                 // Only real device output produces samples; a remote speaker
                 // never routes audio through this machine.
@@ -163,10 +168,10 @@ async fn main() -> Result<()> {
             },
             |app| {
                 while let Ok(update) = controller.updates.try_recv() {
-                    matui::presentation::apply(app, update);
+                    local_matui::presentation::apply(app, update);
                 }
                 if let Some(endpoint) = local_id {
-                    if let Some(id) = matui::presentation::select_local(app, endpoint) {
+                    if let Some(id) = local_matui::presentation::select_local(app, endpoint) {
                         let _ = selection.send(Some(id));
                     }
                 }
@@ -185,7 +190,7 @@ async fn main() -> Result<()> {
                     let searching = matches!(action, ui::Action::Search(_));
                     let browsing = matches!(action, ui::Action::Browse { .. });
                     if requests
-                        .try_send(matui::controller::Request::new(
+                        .try_send(local_matui::controller::Request::new(
                             app.selected_id.clone(),
                             action,
                         ))
@@ -219,16 +224,4 @@ async fn main() -> Result<()> {
             _ => return Ok(()),
         }
     }
-}
-
-fn config_path(explicit: Option<std::path::PathBuf>) -> Result<std::path::PathBuf> {
-    if let Some(path) = explicit {
-        return Ok(path);
-    }
-    if let Some(home) = std::env::var_os("XDG_CONFIG_HOME").filter(|v| !v.is_empty()) {
-        return Ok(std::path::PathBuf::from(home).join("matui/config.toml"));
-    }
-    let home = std::env::var_os("HOME")
-        .ok_or_else(|| anyhow::anyhow!("Use --config when HOME is unset"))?;
-    Ok(std::path::PathBuf::from(home).join(".config/matui/config.toml"))
 }

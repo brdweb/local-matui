@@ -1,6 +1,6 @@
 use api::ApiClient;
-use matui::api;
-use matui::controls::Command;
+use local_matui::api;
+use local_matui::controls::Command;
 use serde_json::{json, Value};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -482,7 +482,7 @@ fn ok(v: Value) -> (u16, String) {
 
 #[tokio::test]
 async fn library_browse_paginates_and_preserves_favorite_filter() {
-    use matui::music::{Kind, Target, PAGE_SIZE};
+    use local_matui::music::{Kind, Target, PAGE_SIZE};
     let rows:Vec<_>=(0..PAGE_SIZE).map(|i|json!({"item_id":i.to_string(),"provider":"library","media_type":"track","name":"Fixture","uri":format!("library://track/{i}")})).collect();
     let (url, task) = server(vec![ok(json!(rows)), ok(json!([]))]).await;
     let api = ApiClient::new(&url, "test-secret").unwrap();
@@ -507,7 +507,7 @@ async fn library_browse_paginates_and_preserves_favorite_filter() {
 
 #[tokio::test]
 async fn browse_routes_collections_and_provider_folders_without_player_commands() {
-    use matui::music::{Kind, Target};
+    use local_matui::music::{Kind, Target};
     let args = json!({"item_id":"fixture","provider_instance_id_or_domain":"provider"});
     for (target, command, expected) in [
         (
