@@ -1,8 +1,9 @@
 # Beta releases
 
 Releases require explicit user authorization. The first beta is `v0.1.0-beta.1`
-in the existing private GitHub repository; public licensing/distribution remains
-a separate decision. A beta tag must not be labeled as a stable/latest release.
+and was originally published as a private beta. Matui is now MIT licensed;
+include the root LICENSE in all new packages alongside third-party notices.
+A beta tag must not be labeled as a stable/latest release.
 
 1. Update Cargo.toml/Cargo.lock and CHANGELOG.md on the feature branch. Run
    `cargo fmt --check`, `cargo clippy --all-targets --locked -- -D warnings`,
@@ -24,8 +25,8 @@ a separate decision. A beta tag must not be labeled as a stable/latest release.
    GitHub draft prerelease with `--verify-tag --prerelease --latest=false`, upload
    only the versioned dist directory's six assets, and publish it once complete.
 6. Download the hosted assets into a fresh directory, verify SHA256SUMS and the
-   embedded executable version/hash, and confirm the tag, source commit, private
-   visibility and prerelease flag. Never claim signing or reproducible builds
+   embedded executable version/hash, and confirm the tag, source commit, intended
+   repository visibility and prerelease flag. Never claim signing or reproducible builds
    unless those checks were actually performed.
 
 Artifacts include the native Linux archive, Arch package, Flatpak bundle, source archive,

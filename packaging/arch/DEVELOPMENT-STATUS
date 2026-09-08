@@ -1,8 +1,7 @@
-MATUI — PRIVATE BETA
+MATUI — BETA
 
-The application's public licensing has not been selected. This package is a
-private beta handoff for the commissioning user's testing, not a public
-release or a representation that all Matui code has an open-source license.
+Matui is licensed under the MIT License; see the accompanying LICENSE file.
+This is beta software, not a stable release.
 Third-party software retains its own licenses; copies of shipped crate license
 and notice files, package license declarations, and Rust runtime copyright
 notices are in the accompanying third-party directory.

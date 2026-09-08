@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stage a private binary package; makepkg performs the actual Arch packaging.
+"""Stage a binary package; makepkg performs the actual Arch packaging.
 
 Run from any directory with Cargo/Rust tools available. Only an explicit allowlist
 of build outputs/docs and registry license files is copied, never local config.
@@ -67,6 +67,7 @@ def stage():
     with tarfile.open(STAGE / 'THIRD-PARTY-NOTICES.tar.gz', 'w:gz') as archive:
         archive.add(notices, arcname='third-party')
     for source, name in [(binary, 'matui'), (ROOT / 'README.md', 'README.md'),
+                         (ROOT / 'LICENSE', 'LICENSE'),
                          (ROOT / 'packaging/matui.desktop', 'matui.desktop'),
                          (ROOT / 'packaging/arch/DEVELOPMENT-STATUS', 'DEVELOPMENT-STATUS')]:
         shutil.copyfile(source, STAGE / name)
@@ -75,7 +76,7 @@ def stage():
     (STAGE / 'PACKAGE-NAME').write_text(package + '\n')
     (STAGE / 'VERSION').write_text(version + '\n')
     (STAGE / 'matui').chmod(0o755)
-    sources = ['matui', 'matui.desktop', 'README.md', 'INSTALL.txt', 'THIRD-PARTY-NOTICES.tar.gz', 'DEVELOPMENT-STATUS']
+    sources = ['matui', 'matui.desktop', 'README.md', 'INSTALL.txt', 'THIRD-PARTY-NOTICES.tar.gz', 'DEVELOPMENT-STATUS', 'LICENSE']
     sums = ' '.join("'" + hashlib.sha256((STAGE / name).read_bytes()).hexdigest() + "'" for name in sources)
     template = (ROOT / 'packaging/arch/PKGBUILD.in').read_text()
     (STAGE / 'PKGBUILD').write_text(template.replace('@GLIBC@', glibc).replace('@PKGVER@', pkgver).replace('@SHA256SUMS@', sums))

@@ -1,4 +1,4 @@
-# Private beta package wrapping the verified release executable.
+# Beta package wrapping the verified release executable.
 # Generated checksums and glibc requirement come from stage.py.
 pkgname=matui
 pkgver=@PKGVER@
@@ -6,15 +6,16 @@ pkgrel=1
 pkgdesc='Terminal controller and embedded Sendspin player for Music Assistant (beta)'
 url='https://github.com/brdweb/matui'
 arch=('x86_64')
-license=('custom')
+license=('MIT')
 depends=('glibc>=@GLIBC@' 'gcc-libs' 'alsa-lib' 'ca-certificates' 'libsecret')
 optdepends=('pipewire-alsa: route ALSA output through PipeWire on Omarchy'
             'gnome-keyring: desktop Secret Service for saved logins')
 options=('!strip' '!debug')
-source=('matui' 'matui.desktop' 'README.md' 'INSTALL.txt' 'THIRD-PARTY-NOTICES.tar.gz' 'DEVELOPMENT-STATUS')
+source=('matui' 'matui.desktop' 'README.md' 'INSTALL.txt' 'THIRD-PARTY-NOTICES.tar.gz' 'DEVELOPMENT-STATUS' 'LICENSE')
 sha256sums=(@SHA256SUMS@)
 
 package() {
+    install -Dm644 "$srcdir/LICENSE" "$pkgdir/usr/share/licenses/matui/LICENSE"
     install -Dm755 "$srcdir/matui" "$pkgdir/usr/bin/matui"
     install -Dm644 "$srcdir/matui.desktop" "$pkgdir/usr/share/applications/matui.desktop"
     install -Dm644 "$srcdir/README.md" "$pkgdir/usr/share/doc/matui/README.md"

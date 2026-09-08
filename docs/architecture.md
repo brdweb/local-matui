@@ -5,8 +5,8 @@
 Rust + Ratatui Linux TUI; Music Assistant 2.10.2 is the initial integration
 target. Local playback is included from the first implementation, not a later
 phase. Embed `sendspin = "=0.3.7"`; do not introduce a companion player process.
-Commit Cargo.lock when changes are reviewed. No release or application license
-has been selected yet.
+Commit Cargo.lock when changes are reviewed. Matui is MIT licensed; third-party
+dependencies retain their own licenses. Release gates are in `docs/releasing.md`.
 
 ## Boundaries
 
