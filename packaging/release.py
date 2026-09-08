@@ -36,6 +36,7 @@ def main():
     assert command(str(binary), '--version') == f'matui {version}'
     assert digest(binary) == digest(STAGE / 'matui'), 'Staged executable is stale'
     assert digest(ROOT / 'README.md') == digest(STAGE / 'README.md'), 'Staged README is stale'
+    assert digest(ROOT / 'LICENSE') == digest(STAGE / 'LICENSE'), 'Staged license is stale'
     package_name = (STAGE / 'PACKAGE-NAME').read_text().strip()
     assert package_name == f"matui-{version.replace('-', '')}-1-x86_64.pkg.tar.zst"
     package = STAGE / package_name
@@ -78,7 +79,7 @@ def main():
     manifest_path.write_text(json.dumps(manifest, indent=2) + '\n')
     archive_path = destination / f'{prefix}-linux-x86_64.tar.gz'
     with tarfile.open(archive_path, 'w:gz') as archive:
-        for name in ['matui', 'matui.desktop', 'README.md', 'INSTALL.txt', 'DEVELOPMENT-STATUS', 'third-party']:
+        for name in ['matui', 'matui.desktop', 'README.md', 'INSTALL.txt', 'DEVELOPMENT-STATUS', 'LICENSE', 'third-party']:
             archive.add(STAGE / name, arcname=f'{prefix}/{name}')
         archive.add(manifest_path, arcname=f'{prefix}/BUILDINFO.json')
     source_path = destination / f'{prefix}-source.tar.gz'

@@ -37,6 +37,7 @@ def main():
     version = tomllib.loads((ROOT / 'Cargo.toml').read_text())['package']['version']
     assert (STAGE / 'VERSION').read_text().strip() == version
     assert sha(STAGE / 'matui') == sha(ROOT / 'target/release/matui')
+    assert sha(STAGE / 'LICENSE') == sha(ROOT / 'LICENSE'), 'Staged license is stale'
     WORK.mkdir(parents=True, exist_ok=True)
     build = WORK / 'build'
     if build.exists():
@@ -49,6 +50,7 @@ def main():
     notices = files / 'share/licenses/matui'
     shutil.copytree(STAGE / 'third-party', notices)
     shutil.copy2(STAGE / 'DEVELOPMENT-STATUS', notices / 'DEVELOPMENT-STATUS')
+    shutil.copy2(STAGE / 'LICENSE', notices / 'LICENSE')
     source = WORK / 'libsecret-0.21.7.tar.xz'
     if not source.exists():
         with urllib.request.urlopen(SOURCE_URL, timeout=60) as response:

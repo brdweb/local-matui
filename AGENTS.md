@@ -24,6 +24,7 @@ and client sources when changing the integration; do not guess API envelopes.
   out of Git. Provide sanitized examples when configuration is introduced.
 - Test relevant behavior before proposing a merge; do not claim checks passed
   unless they ran.
-- Use feature branches and reviewable pull requests for application changes.
+- Work directly on main by default; the sole maintainer does not require feature
+  branches or pull requests. Use a branch or PR only when explicitly requested.
 - Obtain explicit authorization before changing a live Music Assistant server,
   controlling playback, publishing releases, or deploying services.
