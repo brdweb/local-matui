@@ -62,6 +62,7 @@ impl ApiClient {
     /// Built-in MA login. Use a profile token for Home Assistant/OAuth accounts.
     pub async fn login(server: &str, username: &str, password: &str) -> Result<String> {
         let api = Self::new(server, "login")?;
+        api.server_version().await?;
         let mut endpoint = api.endpoint.clone();
         endpoint.set_path(&format!(
             "{}/auth/login",
@@ -98,30 +99,35 @@ impl ApiClient {
     }
 
     pub async fn verify(&self) -> Result<String> {
+        // Identify the base URL before sending credentials to its API endpoint.
+        let version = self.server_version().await?;
         self.command("auth/me", json!({})).await?;
+        self.players().await?;
+        Ok(version)
+    }
+
+    async fn server_version(&self) -> Result<String> {
         let mut endpoint = self.endpoint.clone();
         endpoint.set_path(&format!(
             "{}/info",
             endpoint.path().strip_suffix("/api").unwrap_or_default()
         ));
-        let response = self
-            .http
-            .get(endpoint)
-            .send()
-            .await
-            .map_err(|_| anyhow!("Cannot read server version"))?;
+        let response = self.http.get(endpoint).send().await.map_err(|_| {
+            anyhow!("Cannot reach Music Assistant server information; check the server URL")
+        })?;
         if !response.status().is_success() {
-            return Err(anyhow!("Cannot read server version"));
+            return Err(anyhow!("Server information returned HTTP {}; use the direct Music Assistant base URL, not a Home Assistant dashboard or ingress URL", response.status().as_u16()));
         }
         let value: Value = response
             .json()
             .await
-            .map_err(|_| anyhow!("Invalid server information"))?;
+            .map_err(|_| anyhow!("This URL did not return Music Assistant server information; use the direct Music Assistant base URL"))?;
         let version = text(&value, "server_version");
         if version.is_empty() {
-            return Err(anyhow!("Server did not report its version"));
+            return Err(anyhow!(
+                "This URL did not report a Music Assistant server version; check the base URL"
+            ));
         }
-        self.players().await?;
         Ok(version
             .chars()
             .filter(|c| !c.is_control())
@@ -172,6 +178,9 @@ impl ApiClient {
             .await
             .map_err(|_| anyhow!("Music Assistant connection failed"))?;
         if !response.status().is_success() {
+            if response.status() == reqwest::StatusCode::METHOD_NOT_ALLOWED {
+                return Err(anyhow!("Music Assistant API rejected POST /api (HTTP 405); check the server base URL and reverse-proxy routing"));
+            }
             return Err(anyhow!(
                 "Music Assistant HTTP {}",
                 response.status().as_u16()

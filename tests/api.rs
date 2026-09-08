@@ -50,6 +50,49 @@ async fn server(replies: Vec<(u16, String)>) -> (String, tokio::task::JoinHandle
 }
 
 #[tokio::test]
+async fn connection_test_checks_server_information_before_sending_a_token() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}/dashboard", listener.local_addr().unwrap());
+    let task = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut headers = Vec::new();
+        loop {
+            let mut buf = [0; 1024];
+            let count = socket.read(&mut buf).await.unwrap();
+            assert!(count > 0);
+            headers.extend_from_slice(&buf[..count]);
+            if headers.windows(4).any(|v| v == b"\r\n\r\n") {
+                break;
+            }
+        }
+        let headers = String::from_utf8_lossy(&headers).to_lowercase();
+        assert!(headers.starts_with("get /dashboard/info http/1.1"));
+        assert!(!headers.contains("authorization:"));
+        let body = "<html>Private dashboard text</html>";
+        socket
+            .write_all(
+                format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                )
+                .as_bytes(),
+            )
+            .await
+            .unwrap();
+    });
+    let error = ApiClient::new(&url, "fixture-secret")
+        .unwrap()
+        .verify()
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("direct Music Assistant base URL"));
+    assert!(!error.contains("fixture-secret"));
+    assert!(!error.contains("Private dashboard"));
+    task.await.unwrap();
+}
+
+#[tokio::test]
 async fn queue_edits_are_bound_to_displayed_queue_and_player_commands_are_direct() {
     let (url, task) = server(vec![ok(json!({"queue_id":"new-leader"}))]).await;
     let api = ApiClient::new(&url, "test-secret").unwrap();

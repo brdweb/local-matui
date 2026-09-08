@@ -228,9 +228,11 @@ pub fn run(
             }
             let settings = app.settings.as_mut().unwrap();
             let config = settings.config.clone();
-            let username = std::mem::take(&mut settings.username);
-            let password = std::mem::take(&mut settings.password);
-            let entered = std::mem::take(&mut settings.token);
+            // Keep the form intact while testing. A failed request must remain
+            // retryable without re-entering a long token; rendering stays masked.
+            let username = settings.username.clone();
+            let password = settings.password.clone();
+            let entered = settings.token.clone();
             let saved = if config.server == previous_server {
                 existing.clone()
             } else {
