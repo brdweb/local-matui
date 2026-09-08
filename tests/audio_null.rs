@@ -7,6 +7,16 @@ use tokio_tungstenite::tungstenite::Message;
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires Linux ALSA null output; run explicitly"]
 async fn opens_real_cpal_null_stream_and_acknowledges_volume() {
+    check_output(Some("alsa:null")).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires a desktop default output; opens a silent stream with no audio frames"]
+async fn opens_default_output_silently_and_acknowledges_volume() {
+    check_output(None).await;
+}
+
+async fn check_output(device: Option<&str>) {
     assert!(audio::devices()
         .unwrap()
         .iter()
@@ -49,7 +59,7 @@ async fn opens_real_cpal_null_stream_and_acknowledges_volume() {
         token: "fixture".into(),
         player_id: "null-fixture".into(),
         player_name: "Null fixture".into(),
-        device_id: Some("alsa:null".into()),
+        device_id: device.map(str::to_owned),
         volume: 30,
         muted: false,
     })
