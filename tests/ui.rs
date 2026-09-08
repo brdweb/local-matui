@@ -1,5 +1,4 @@
-#[path = "../src/ui.rs"]
-mod ui;
+use matui::ui;
 
 #[test]
 fn selects_available_player_and_routes_controls_only_when_connected() {

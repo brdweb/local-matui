@@ -28,6 +28,34 @@ impl Default for Config {
 }
 
 impl Config {
+    pub fn save(&self, path: &std::path::Path) -> Result<()> {
+        use std::{io::Write, os::unix::fs::OpenOptionsExt};
+        let text = toml::to_string_pretty(self)?;
+        Self::parse(&text)?;
+        let parent = path
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or(std::path::Path::new("."));
+        std::fs::create_dir_all(parent)?;
+        let temp = parent.join(format!(".matui-{}.tmp", uuid::Uuid::new_v4()));
+        let result = (|| -> Result<()> {
+            let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(&temp)?;
+            file.write_all(text.as_bytes())?;
+            file.sync_all()?;
+            std::fs::rename(&temp, path)?;
+            std::fs::File::open(parent)?.sync_all()?;
+            Ok(())
+        })();
+        if result.is_err() {
+            let _ = std::fs::remove_file(temp);
+        }
+        result.map_err(|_| anyhow::anyhow!("Could not save connection settings"))
+    }
+
     pub fn parse(text: &str) -> Result<Self> {
         // Do not echo TOML input: users may accidentally paste a credential.
         let value: Self = toml::from_str(text)

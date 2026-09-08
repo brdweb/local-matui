@@ -1,5 +1,4 @@
-#[path = "../src/config.rs"]
-mod config;
+use matui::config;
 
 #[test]
 fn parses_server_without_storing_a_token() {

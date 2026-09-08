@@ -25,7 +25,7 @@ pub fn run(
     mut app: App,
     mut tick: impl FnMut(&mut App),
     mut dispatch: impl FnMut(&mut App, Action),
-) -> Result<()> {
+) -> Result<Action> {
     if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
         bail!("An interactive terminal is required; use --demo --snapshot for plain output");
     }
@@ -37,24 +37,39 @@ pub fn run(
         tokio::select! { _=terminate.recv()=>{}, _=interrupt.recv()=>{} }
         signal_quit.store(true, std::sync::atomic::Ordering::Release);
     }));
-    let original_hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(move |info| {
-        let _ = terminal::disable_raw_mode();
-        let _ = execute!(io::stdout(), terminal::LeaveAlternateScreen, cursor::Show);
-        original_hook(info);
-    }));
+    static PANIC_HOOK: std::sync::Once = std::sync::Once::new();
+    PANIC_HOOK.call_once(|| {
+        let original_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            let _ = terminal::disable_raw_mode();
+            let _ = execute!(io::stdout(), terminal::LeaveAlternateScreen, cursor::Show);
+            original_hook(info);
+        }));
+    });
     terminal::enable_raw_mode()?;
     let _restore = Restore;
     execute!(io::stdout(), terminal::EnterAlternateScreen, cursor::Hide)?;
     let backend = ratatui::backend::CrosstermBackend::new(io::stdout());
     let mut terminal = ratatui::Terminal::new(backend)?;
+    let theme_paths = crate::theme::paths();
+    crate::theme::reload(&mut app.palette, &theme_paths);
+    let mut theme_check = std::time::Instant::now();
+    let mut outcome = Action::Quit;
     while !quit.load(std::sync::atomic::Ordering::Acquire) {
         tick(&mut app);
+        if app.exit {
+            break;
+        }
+        if theme_check.elapsed() >= Duration::from_millis(500) {
+            crate::theme::reload(&mut app.palette, &theme_paths);
+            theme_check = std::time::Instant::now();
+        }
         terminal.draw(|frame| ui::draw(frame, &mut app))?;
         if event::poll(Duration::from_millis(50))? {
             if let event::Event::Key(key) = event::read()? {
                 let action = app.key(key);
-                if action == Action::Quit {
+                if matches!(action, Action::Quit | Action::OpenSettings) {
+                    outcome = action;
                     break;
                 }
                 if action != Action::None {
@@ -63,5 +78,5 @@ pub fn run(
             }
         }
     }
-    Ok(())
+    Ok(outcome)
 }

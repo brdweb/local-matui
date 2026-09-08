@@ -6,6 +6,7 @@ use serde_json::{json, Value};
 
 #[derive(Debug, Clone, Default)]
 pub struct Player {
+    pub details: Value,
     pub id: String,
     pub name: String,
     pub state: String,
@@ -15,6 +16,7 @@ pub struct Player {
 
 #[derive(Debug, Clone, Default)]
 pub struct Queue {
+    pub details: Value,
     pub id: String,
     pub name: String,
     pub state: String,
@@ -57,6 +59,76 @@ impl std::fmt::Debug for ApiClient {
     }
 }
 impl ApiClient {
+    /// Built-in MA login. Use a profile token for Home Assistant/OAuth accounts.
+    pub async fn login(server: &str, username: &str, password: &str) -> Result<String> {
+        let api = Self::new(server, "login")?;
+        let mut endpoint = api.endpoint.clone();
+        endpoint.set_path(&format!(
+            "{}/auth/login",
+            endpoint.path().strip_suffix("/api").unwrap_or_default()
+        ));
+        let response = api
+            .http
+            .post(endpoint)
+            .json(&json!({
+                "provider_id":"builtin", "device_name":"Matui",
+                "credentials":{"username":username,"password":password}
+            }))
+            .send()
+            .await
+            .map_err(|_| anyhow!("Login connection failed"))?;
+        if !response.status().is_success() {
+            return Err(anyhow!(
+                "Login rejected (HTTP {})",
+                response.status().as_u16()
+            ));
+        }
+        let value: Value = response
+            .json()
+            .await
+            .map_err(|_| anyhow!("Invalid login response"))?;
+        if value["success"] != true {
+            return Err(anyhow!("Login rejected"));
+        }
+        let token = value["token"]
+            .as_str()
+            .ok_or_else(|| anyhow!("Login did not return a token"))?;
+        Self::new(server, token)?;
+        Ok(token.to_owned())
+    }
+
+    pub async fn verify(&self) -> Result<String> {
+        self.command("auth/me", json!({})).await?;
+        let mut endpoint = self.endpoint.clone();
+        endpoint.set_path(&format!(
+            "{}/info",
+            endpoint.path().strip_suffix("/api").unwrap_or_default()
+        ));
+        let response = self
+            .http
+            .get(endpoint)
+            .send()
+            .await
+            .map_err(|_| anyhow!("Cannot read server version"))?;
+        if !response.status().is_success() {
+            return Err(anyhow!("Cannot read server version"));
+        }
+        let value: Value = response
+            .json()
+            .await
+            .map_err(|_| anyhow!("Invalid server information"))?;
+        let version = text(&value, "server_version");
+        if version.is_empty() {
+            return Err(anyhow!("Server did not report its version"));
+        }
+        self.players().await?;
+        Ok(version
+            .chars()
+            .filter(|c| !c.is_control())
+            .take(60)
+            .collect())
+    }
+
     pub fn new(server: &str, token: &str) -> Result<Self> {
         let mut endpoint = url::Url::parse(server).map_err(|_| anyhow!("Invalid server URL"))?;
         // Url normalizes empty userinfo away, so reject its raw authority too.
@@ -122,6 +194,54 @@ impl ApiClient {
         }
         Ok(v)
     }
+    pub async fn playback_command(
+        &self,
+        player_id: &str,
+        command: crate::controls::Command,
+    ) -> Result<()> {
+        use crate::controls::Command;
+        match command {
+            Command::Player { name, mut args } => {
+                let path = match name {
+                    "sleep_timer/set" | "sleep_timer/clear" => format!("players/{name}"),
+                    "set_members" => {
+                        args["target_player"] = json!(player_id);
+                        self.command("players/cmd/set_members", args).await?;
+                        return Ok(());
+                    }
+                    _ => format!("players/cmd/{name}"),
+                };
+                args["player_id"] = json!(player_id);
+                self.command(&path, args).await?;
+            }
+            Command::Queue { id, name, mut args } => {
+                self.check_queue(player_id, &id).await?;
+                args["queue_id"] = json!(id);
+                self.command(&format!("player_queues/{name}"), args).await?;
+            }
+            Command::Transfer { source, target } => {
+                self.check_queue(player_id, &source).await?;
+                let destination = self.active_queue(&target).await?;
+                let target_id = text(&destination, "queue_id");
+                if source == target_id {
+                    return Err(anyhow!("Players already share this queue"));
+                }
+                self.command(
+                    "player_queues/transfer",
+                    json!({"source_queue_id":source,"target_queue_id":target_id}),
+                )
+                .await?;
+            }
+        }
+        Ok(())
+    }
+    async fn check_queue(&self, player_id: &str, expected: &str) -> Result<()> {
+        let active = self.active_queue(player_id).await?;
+        if expected.is_empty() || text(&active, "queue_id") != expected {
+            return Err(anyhow!("Active queue changed; refresh before editing it"));
+        }
+        Ok(())
+    }
     pub async fn queue(&self, player_id: &str) -> Result<Queue> {
         let v = self.active_queue(player_id).await?;
         let id = text(&v, "queue_id");
@@ -147,6 +267,7 @@ impl ApiClient {
         }
         let current = queue_item(&v["current_item"]);
         Ok(Queue {
+            details: v.clone(),
             id,
             name: text(&v, "display_name"),
             state: text(&v, "state"),
@@ -211,21 +332,37 @@ impl ApiClient {
         let v = self
             .command(
                 "music/search",
-                json!({"search_query":query,"media_types":["track"],"limit":50}),
+                json!({"search_query":query,"media_types":["track","album","artist","playlist","radio","audiobook","podcast"],"limit":50}),
             )
             .await?;
-        let rows = v["tracks"]
-            .as_array()
-            .ok_or_else(|| anyhow!("Invalid search results"))?;
-        Ok(rows
-            .iter()
-            .map(|v| Track {
-                uri: text(v, "uri"),
-                title: text(v, "name"),
-                artist: artist(v),
-            })
-            .collect())
+        if !v["tracks"].is_array() {
+            return Err(anyhow!("Invalid search results"));
+        }
+        let mut results = Vec::new();
+        for (field, label) in [
+            ("tracks", ""),
+            ("albums", "Album"),
+            ("artists", "Artist"),
+            ("playlists", "Playlist"),
+            ("radio", "Radio"),
+            ("audiobooks", "Audiobook"),
+            ("podcasts", "Podcast"),
+        ] {
+            for item in v[field].as_array().into_iter().flatten().take(50) {
+                results.push(Track {
+                    uri: text(item, "uri"),
+                    title: if label.is_empty() {
+                        text(item, "name")
+                    } else {
+                        format!("[{label}] {}", text(item, "name"))
+                    },
+                    artist: artist(item),
+                });
+            }
+        }
+        Ok(results)
     }
+
     pub async fn players(&self) -> Result<Vec<Player>> {
         let value = self.command("players/all", json!({})).await?;
         let rows = value
@@ -234,6 +371,7 @@ impl ApiClient {
         Ok(rows
             .iter()
             .map(|v| Player {
+                details: v.clone(),
                 id: text(v, "player_id"),
                 name: text(v, "name"),
                 state: text(v, "playback_state"),

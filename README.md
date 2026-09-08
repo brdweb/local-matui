@@ -1,161 +1,153 @@
 # Matui
 
-A black-and-amber Linux terminal interface for Music Assistant, with embedded
-local playback through **sendspin-rs 0.3.7**. Rust + Ratatui; no companion player
-process or Python runtime is needed to run the application.
+A Linux terminal controller and local speaker for Music Assistant. Built with
+Rust + Ratatui and embedded **sendspin-rs 0.3.7**; no companion player process.
+Matui follows the current Omarchy theme, including changes while it is open.
 
-## Status
-
-First development build, targeting Music Assistant **2.10.2**. Controller and
-local audio code are implemented together. Protocol fixtures, real terminal
-interaction and CPAL/ALSA null-output initialization have been exercised. **Not
-yet tested against a live MA instance or physical speakers/headphones.**
-
-Implemented:
-
-- Player selection and now-playing information.
-- Play/pause, previous/next, volume and relative seek.
-- Paginated queue viewing; correct active-queue resolution for grouped players.
-- Provider/library track search, append to queue, replace queue and play.
-- Asynchronous requests, reconnect polling, stale-data and error indicators.
-- Embedded PCM/FLAC/Opus decoding and synchronized CPAL output, authenticated
-  MA Sendspin proxy, volume/mute/delay handling, network reconnect and shutdown.
-- Persistent local player identity, explicit output-device selection, offline demo.
-
-## Omarchy / Arch package
-
-The private x86-64 development package is `matui-0.1.0-1-x86_64.pkg.tar.zst`.
-After copying it and its `.sha256` file to your **local** computer:
+## Run on this laptop
 
 ```sh
-sha256sum -c matui-0.1.0-1-x86_64.pkg.tar.zst.sha256
-sudo pacman -U ./matui-0.1.0-1-x86_64.pkg.tar.zst
-matui --demo
+matui                 # Opens connection setup when there is no saved login
+matui --setup         # Edit connection/login and local speaker settings
+matui --demo          # Offline preview; never connects or opens audio
 ```
 
-This unsigned package declares its runtime dependencies, requires glibc >= 2.39,
-and does not need Rust or a separate Sendspin executable. It does not install a
-service or start playback. Run Matui as your normal desktop user, not sudo, for
-your desktop's audio devices. Running it over SSH plays on the remote computer.
-See `packaging/arch/INSTALL.txt` for configuration and `packaging/arch/README.md`
-for package generation and verification. No public release has been published.
+Press **F2** for connection settings and **? / F1** for playback controls. The
+settings screen accepts either a Music Assistant built-in username/password or a
+profile access token. Home Assistant/OAuth users can create a profile token in
+Music Assistant and paste it in the masked token field. Passwords are never
+saved; the resulting token is stored in the desktop Secret Service keyring via
+`secret-tool` (`libsecret` on Arch). Unlock the desktop keyring if saving fails.
+`MATUI_TOKEN` remains available as an environment override for temporary use.
 
-## Build
+Set the server URL, speaker name and audio output, then select **Test connection
+and save login**. This checks authentication, the server's reported version and
+player-list access before saving. Blank credentials reuse the login for the same
+server. Press Tab/Shift-Tab to move between fields, Ctrl-U to clear a text field,
+and Space to toggle speaker registration or cycle output devices. Esc cancels.
 
-Install a current stable Rust toolchain, a C compiler, pkg-config and ALSA headers.
-For example, on Arch install `base-devel pkgconf alsa-lib`; on Debian/Ubuntu
-install `build-essential pkg-config libasound2-dev`. Use rustup for Rust.
+New setup enables **Expose this computer as a speaker** by default. After login,
+Matui registers its persistent Sendspin identity and automatically selects it
+when it appears. The endpoint remains available while Matui is running. Opening
+settings disconnects it until you return; quitting stops local audio. Registration
+does not issue a play command, but Music Assistant can send audio to the endpoint.
+Use `--remote-only` to override speaker registration, or `--local` to enable it.
 
-```sh
-cargo build --release --locked
-./target/release/matui --help
-./target/release/matui --demo
-./target/release/matui --demo --snapshot
-```
+Default output follows the desktop's ALSA/PipeWire routing. An explicitly selected
+missing device fails visibly instead of falling back to another output. Use
+`matui --list-devices` to inspect available devices. Local means the computer
+running Matui; running over SSH does not move audio to your laptop.
 
-The demo uses labelled fictional data and never connects to a server or opens
-an audio stream. The snapshot is plain text; the normal UI needs a TTY.
-Minimum terminal size is 50 columns by 16 rows; 110 by 30 is more comfortable.
+Non-secret settings live at `$XDG_CONFIG_HOME/matui/config.toml` or
+`~/.config/matui/config.toml`, with mode 0600. `--config PATH` selects another file.
+Keep `player_id` unchanged to retain the same Music Assistant speaker identity.
+`--init` creates a configuration without overwriting an existing one. Do not put
+tokens in TOML or Git. Prefer HTTPS outside a trusted LAN; HTTP does not encrypt
+credentials or audio. URL userinfo, query strings and fragments are rejected.
 
-## Configure and connect
-
-```sh
-./target/release/matui --init
-./target/release/matui --list-devices
-```
-
-`--init` creates `$XDG_CONFIG_HOME/matui/config.toml`, or
-`~/.config/matui/config.toml`, with mode 0600 and a generated player ID. It never
-overwrites an existing file. Use `--config /path/to/config.toml` to choose another
-location. Edit `server` and, optionally, `player_name` and `device_id` in that file.
-Keep the generated `player_id`: changing it creates a different MA endpoint.
-
-Create a long-lived token in Music Assistant's profile settings. Supply it through
-`MATUI_TOKEN`, **not** TOML, the command line or Git. In Bash, a silent prompt avoids
-putting the token itself into shell history:
-
-```sh
-read -rsp 'Music Assistant token: ' MATUI_TOKEN; printf '\n'
-export MATUI_TOKEN
-./target/release/matui --local
-unset MATUI_TOKEN
-```
-
-`--local` enables/registers this computer as an MA player. Select that player in
-the player pane to control local playback. Starting Matui does not issue a play
-command, but MA may send audio to a registered local endpoint. Leave local audio
-disabled when you only want to inspect/control other players.
-
-- `--remote-only` overrides an enabled `local_playback` configuration setting.
-- `local_playback = true` remembers that you want local audio on startup.
-- Without `device_id`, the platform default output is used. An explicitly selected
-  missing device fails visibly rather than falling back to speakers.
-- Linux output goes through CPAL's ALSA backend. PipeWire/PulseAudio desktop
-  routing depends on the corresponding ALSA plugins/default-device configuration.
-- Prefer HTTPS for credentials across untrusted networks. HTTP/WS sends tokens
-  and audio without transport encryption. URL userinfo/query/fragment are rejected.
-
-## Keyboard controls
+## Playback and player controls
 
 | Key | Action |
 | --- | --- |
 | Tab | Cycle players, queue and search panes |
 | Up/Down or j/k | Move highlighted row |
-| Enter in players | Select an available player; does not start playback |
-| Space | Play/pause selected player |
-| n / p | Next / previous |
+| Enter in players | Select a player without starting playback |
+| Space | Play/pause selected player's MA queue |
+| n / p | Next / previous queue item |
+| s / m | Stop / mute selected player |
 | + / - | Volume up/down 5 points |
 | Left / Right | Seek backward/forward 10 seconds |
-| / | Enter a track search; Enter submits, Esc cancels |
-| a in search results | Append highlighted track to active queue |
-| Enter in search results | **Replace active queue and play highlighted track** |
-| Esc | Return to queue pane |
+| / | Search; Enter submits, Esc cancels |
+| a in search | Append highlighted result |
+| Enter in search | **Replace queue and play highlighted result** |
+| Enter in queue | Play highlighted existing queue item |
+| Delete in queue | Remove highlighted item |
+| Shift-J / Shift-K in queue | Move item down/up |
+| ? / F1 | Open playback/player controls |
+| F2 | Connection settings (temporarily disconnects local speaker) |
 | r | Refresh |
-| q / Ctrl-C | Quit, stop local audio and restore the terminal |
+| q / Ctrl-C | Quit and restore terminal |
 
-Commands target the selected MA player, not necessarily this computer. Failed
-mutations are not automatically replayed. Commands waiting too long are dropped
-instead of being applied unexpectedly after a connection recovers.
+The controls menu includes direct player transport (including external sources),
+mute, power, individual/group volume, absolute seek, sleep timers, compatible
+player grouping, ungrouping, source/sound-mode selection and writable player
+options. Queue controls include shuffle/repeat, autoplay/crossfade when reported,
+play/remove/reorder/clear, playback transfer, and audiobook/podcast playback speed.
+Numeric controls and media URIs have input screens. Enter applies the selected
+menu action; Esc returns. Page Up/Down and Home/End navigate long lists.
 
-## Verification
+Search includes tracks, albums, artists, playlists, radio, audiobooks and podcasts
+(up to 50 results per type). Entering a media URI also supports playing or queuing
+provider/library items without a dedicated browser. The controls menu provides
+play-next and play-immediately options for the highlighted search result.
+
+Controls target the selected player. Group queue ownership is resolved separately
+from player volume. Queue item edits retain the displayed queue identity and are
+rejected if grouping changes that identity. Failed mutations are never replayed,
+and commands delayed more than three seconds are dropped.
+
+## Themes
+
+Matui rereads Omarchy's `colors.toml` every 500 ms. It supports the current
+`~/.local/state/omarchy/current/theme/` layout (including `XDG_STATE_HOME`) and the
+older `~/.config/omarchy/current/theme/` layout. It retains the last valid palette
+while a theme directory is being replaced. No Omarchy files or hooks are changed.
+Without a palette, it uses terminal colors. `NO_COLOR` disables emitted colors.
+
+## Build and local install
+
+Use stable Rust, a C compiler, pkg-config and ALSA headers. On Arch the build
+packages are `base-devel pkgconf alsa-lib`; login persistence also needs `libsecret`
+and a running Secret Service (normally supplied by the desktop keyring).
+
+```sh
+cargo build --release --locked
+install -Dm755 target/release/matui ~/.local/bin/matui
+install -Dm644 packaging/matui.desktop ~/.local/share/applications/matui.desktop
+matui --demo
+```
+
+The launcher entry is **Matui**. Ensure `~/.local/bin` is on your desktop PATH.
+Installation does not install a service or publish a release. Minimum terminal
+size is 50×16; 110×30 is recommended. `matui --demo --snapshot` prints plain text.
+
+A private Arch package workflow is also available in `packaging/arch/README.md`.
+Previously built archives do not contain later branch changes; rebuild and verify
+before distributing a package. No updated package or public release is implied
+by the local installation above.
+
+## Verification and boundaries
+
+The API integration targets Music Assistant **2.10.2**, using its versioned server
+sources. Automated checks use local protocol fixtures. The local desktop keyring
+round-trip and CPAL/ALSA null-output tests have also been exercised on this laptop.
+**A live Music Assistant login, speaker registration and audible playback still
+require validation against the user's server.** No multi-room sync claim is made.
 
 ```sh
 cargo fmt --check
-cargo clippy --all-targets -- -D warnings
+cargo clippy --all-targets --locked -- -D warnings
 cargo test --all-targets --locked
 cargo build --release --locked
 uv run --with pyte python tests/terminal_smoke.py target/release/matui
 uv run --with pyte python tests/terminal_smoke.py target/release/matui sigterm
 uv run --with pyte python tests/connected_smoke.py target/release/matui
-# Opt-in Linux-only test; uses a real CPAL stream on ALSA's silent null output:
-cargo test --test audio_null -- --ignored
-# Real-player delay-reset regression on the same silent output:
+uv run --with pyte python tests/settings_smoke.py target/release/matui
+cargo test --test audio_null --locked -- --ignored
 cargo test --locked --lib -- --ignored
+# Uses then deletes a disposable synthetic desktop keyring entry:
+cargo test --test keyring --locked -- --ignored
 ```
 
-Python/uv/pyte are needed only for PTY smoke tests, not for Matui. HTTP/WebSocket
-fixtures bind localhost and never contact your server. Null-output tests are
-ignored in the normal suite because the device is not available on every host.
+Python/uv/pyte are test tools, not runtime dependencies. The UI polls state every
+two seconds; very large queues cost additional requests. Output-device changes
+restart the connection. Runtime audio volume/mute/delay changes are not persisted
+across application restarts. Upstream Sendspin receivers are unbounded and audio
+callbacks use locks; there is no global real-time/lock-free guarantee.
 
-## Current limitations
+Matui does not administer users, providers, DSP or the MA server. It has no
+dedicated library browser, album art or desktop media-key integration. Player
+support varies; server rejections appear as command errors. Application licensing
+and public-distribution review remain outstanding.
 
-- Search is track-only, limited to 50 results; no dedicated album/playlist browser.
-- Queue is viewable with append/replace actions; no removal/reordering UI yet.
-- No shuffle/repeat UI, album art, discovery wizard or desktop media-key integration.
-- API state is polled every two seconds, including queue pages; very large queues
-  will cost more requests. No live event subscription or cache yet.
-- Output-device changes require restarting Matui. A failed audio device/decoder
-  stops local audio visibly; recovery requires a restart, not a silent reroute.
-- Volume changes survive network reconnects in the running audio engine, but
-  runtime volume/mute/delay changes are not saved back to TOML across launches.
-- The upstream 0.3.7 router has unbounded internal receivers and audio callbacks
-  take locks. Application-level bounds do not establish a global real-time or
-  lock-free guarantee. Queued audio is discarded at stream boundaries because
-  upstream split receivers do not expose ordering IDs.
-- No claims of bit-perfect output, hardware latency or measured multi-room sync.
-- A private Arch package is provided for testing, not a public release.
-  Application licensing and a public-distribution review remain outstanding.
-
-Architecture and engineering guidance: `docs/architecture.md` and `AGENTS.md`.
-The isolated development environment used here is documented in
-`docs/development-environment.md`.
+See `docs/architecture.md`, `docs/development-environment.md` and `AGENTS.md`.

@@ -10,26 +10,20 @@ This is an unsigned private package. Do not disable signature checking globally.
 If your local package signature policy rejects it, stop and review that policy
 rather than bypassing it. Dependencies are declared for pacman's normal checks.
 
-Requires glibc >= 2.39, gcc-libs, alsa-lib and ca-certificates. PipeWire desktop
+Requires glibc >= 2.39, gcc-libs, alsa-lib, ca-certificates and libsecret. PipeWire desktop
 routing uses pipewire-alsa (optional package; ordinarily part of desktop audio
 setup). Do not use --nodeps or --overwrite to force installation. No compiler,
 Rust toolchain, Python runtime or separate Sendspin executable is needed.
 
 Configure (run as your normal desktop user, NOT sudo):
 
-    matui --init
-    matui --list-devices
+    matui --setup
 
-Edit ~/.config/matui/config.toml (or $XDG_CONFIG_HOME/matui/config.toml) and set
-server to your Music Assistant URL. Keep the generated player_id. Set device_id
-only if you want an explicit output from --list-devices.
-
-In Bash, prompt for the token without storing it in command history:
-
-    read -rsp 'Music Assistant token: ' MATUI_TOKEN; printf '\n'
-    export MATUI_TOKEN
-    matui --local
-    unset MATUI_TOKEN
+Enter the server URL and either a built-in Music Assistant username/password or a
+profile token. Login persistence requires libsecret's secret-tool and an unlocked
+desktop Secret Service keyring. Passwords are not saved. Choose the local speaker
+name/output and save. F2 reopens settings; ? opens all playback/player controls.
+MATUI_TOKEN remains an optional environment override; never put it in TOML.
 
 Local means the machine RUNNING Matui. SSH does not forward audio to your laptop.
 --local registers an audio endpoint; MA can send audio to it. --remote-only disables
