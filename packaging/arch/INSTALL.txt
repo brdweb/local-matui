@@ -1,0 +1,56 @@
+Matui @VERSION@ — Omarchy / Arch Linux x86-64 beta
+
+Install on your LOCAL Omarchy computer, not inside the SSH session:
+
+    sha256sum --ignore-missing -c SHA256SUMS
+    sudo pacman -U ./@PACKAGE@
+    matui --demo
+
+This is an unsigned private package. Do not disable signature checking globally.
+If your local package signature policy rejects it, stop and review that policy
+rather than bypassing it. Dependencies are declared for pacman's normal checks.
+
+Requires glibc >= @GLIBC@, gcc-libs, alsa-lib, ca-certificates and libsecret. PipeWire desktop
+routing uses pipewire-alsa (optional package; ordinarily part of desktop audio
+setup). Do not use --nodeps or --overwrite to force installation. No compiler,
+Rust toolchain, Python runtime or separate Sendspin executable is needed.
+
+Configure (run as your normal desktop user, NOT sudo):
+
+    matui --setup
+
+Enter the server URL and either a built-in Music Assistant username/password or a
+profile token. Login persistence requires libsecret's secret-tool and an unlocked
+desktop Secret Service keyring. Passwords are not saved. Choose the local speaker
+name/output and save. F2 reopens settings; ? opens all playback/player controls.
+MATUI_TOKEN remains an optional environment override; never put it in TOML.
+
+Local means the machine RUNNING Matui. SSH does not forward audio to your laptop.
+--local registers an audio endpoint; MA can send audio to it. --remote-only disables
+local audio. The demo never connects or opens an audio stream.
+
+No credentials or local configuration are shipped. Installation does not start
+Matui, create a service, register a player or change audio routing. Removing the
+package does not remove your personal config:
+
+    sudo pacman -R matui
+
+Read /usr/share/doc/matui/README.md for keys and limitations. Enter opens collections
+or a playback menu; Play now explicitly replaces the selected player's queue.
+'a' appends, 'N' plays next, and 'b' opens the music browser.
+
+Alternatively, extract the Linux archive and run ./matui, or install it as your user:
+
+    install -Dm755 matui ~/.local/bin/matui
+    install -Dm644 matui.desktop ~/.local/share/applications/matui.desktop
+
+Keep the bundled documentation and third-party license notices with the binary.
+If migrating from a user installation to the Arch package, ~/.local/bin/matui may
+take precedence over /usr/bin/matui. Check with 'command -v matui' and remove or
+rename only the old user executable after validating the package installation.
+
+The executable was compiled on the development host and wrapped using Arch
+makepkg. It is not an Arch source rebuild or an official repository/AUR package.
+Live local and remote playback on Music Assistant 2.10.2 is confirmed on the
+development laptop. Other hardware, prolonged playback, server restart during
+streaming, codec/format transitions and multi-room sync remain beta test areas.
