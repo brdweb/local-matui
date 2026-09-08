@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.0-beta.2 — 2026-09-08
 
 - Rename the project to **local-matui** to avoid clashing with other projects:
   the command, crate, Arch package, desktop entry and repository are now
@@ -10,7 +10,8 @@
   credentials: a pre-rename `matui/config.toml`, keyring entry and `MATUI_TOKEN`
   are still read while no current equivalent exists. Nothing is copied, moved or
   deleted, and Music Assistant sees a new speaker identity only if you create
-  one. Release v0.1.0-beta.1 remains published under the former name.
+  one. This release replaces v0.1.0-beta.1, which was withdrawn: it was
+  published under the former name only hours earlier and is superseded here.
 
 - Rework the controls and layout: the queue stays beside the music browser, the
   header carries transport state, volume, mute and shuffle/repeat, and the hint

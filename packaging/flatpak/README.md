@@ -1,24 +1,18 @@
 # Flatpak beta
 
-Download `matui-v0.1.0-beta.1-linux-x86_64.flatpak` and `SHA256SUMS` from the
-private GitHub beta release, then run:
+Download `local-matui-v0.1.0-beta.2-linux-x86_64.flatpak` and `SHA256SUMS` from
+the GitHub beta release, then run:
 
 ```sh
 sha256sum --ignore-missing -c SHA256SUMS
-flatpak install --user ./matui-v0.1.0-beta.1-linux-x86_64.flatpak
-flatpak run io.github.brdweb.Matui
+flatpak install --user ./local-matui-v0.1.0-beta.2-linux-x86_64.flatpak
+flatpak run io.github.brdweb.LocalMatui
 ```
-
-That bundle predates the rename and keeps the `io.github.brdweb.Matui`
-application ID. Bundles built from this tree use `io.github.brdweb.LocalMatui`
-and install alongside it as a separate application with its own settings.
 
 The installer obtains Freedesktop Platform 26.08 from Flathub if needed. This is
 an x86-64 single-file beta bundle, not a Flathub listing or an update repository.
 Install a later downloaded bundle with the same command to update. To remove:
-`flatpak uninstall --user io.github.brdweb.Matui` for the published beta, or
-`io.github.brdweb.LocalMatui` for a bundle built from this tree (both keep
-settings by default).
+`flatpak uninstall --user io.github.brdweb.LocalMatui` (keeps settings by default).
 The desktop entry uses your terminal emulator; the command above also works
 inside an already-open terminal.
 
@@ -50,7 +44,7 @@ headers and `desktop-file-validate`. No flatpak-builder or compiler SDK is neede
 cargo build --release --locked
 python3 packaging/arch/stage.py
 python3 packaging/flatpak/build.py
-flatpak install --user --noninteractive .tools/flatpak-package/local-matui-v0.1.0-beta.1-linux-x86_64.flatpak
+flatpak install --user --noninteractive .tools/flatpak-package/local-matui-v0.1.0-beta.2-linux-x86_64.flatpak
 flatpak run io.github.brdweb.LocalMatui --version
 flatpak run io.github.brdweb.LocalMatui --demo --snapshot
 flatpak run io.github.brdweb.LocalMatui --list-devices
