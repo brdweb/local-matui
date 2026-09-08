@@ -33,6 +33,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
             body = [{"queue_item_id":"item1","name":"Fixture song","duration":200}]
         elif cmd == "music/search":
             body = {"tracks":[{"name":"Search fixture","uri":"library://track/1","artists":[{"name":"Fixture artist"}]}]}
+        elif cmd == "music/playlists/library_items":
+            assert req["args"] == {"limit":100,"offset":0,"order_by":"sort_name","favorite":None}
+            body = [{"name":"Fixture playlist","item_id":"playlist1","provider":"library","media_type":"playlist","uri":"library://playlist/playlist1"}]
+        elif cmd == "music/playlists/playlist_tracks":
+            assert req["args"] == {"item_id":"playlist1","provider_instance_id_or_domain":"library"}
+            body = [{"name":"Browse fixture track","uri":"library://track/browsed","media_type":"track"}]
         elif cmd == "players/cmd/stop":
             assert req["args"] == {"player_id":"member"}
             body = None
@@ -74,8 +80,27 @@ with tempfile.TemporaryDirectory(prefix="matui-smoke-") as tmp:
         env=dict(os.environ,TERM="xterm-256color",MATUI_TOKEN="local-fixture"))
     try:
         visible("Fixture speaker")
+        visible("Music library")
+        os.write(master,b"b\r")
+        visible("Fixture playlist")
+        assert not any(c["command"].startswith("player_queues/") for c in calls), "browsing must work before speaker selection"
+        os.write(master,b"\x7f\x1b[Z")  # Back to music home, Shift-Tab to Players.
         os.write(master,b"\r")
         visible("Fixture song")
+        os.write(master,b"\r")
+        visible("Fixture playlist")
+        os.write(master,b"\r")
+        visible("Browse fixture track")
+        for index, option in enumerate(("replace","next","add")):
+            os.write(master,b"\r")
+            visible("Play now (replace queue)")
+            visible("Fixture speaker")
+            os.write(master,b"j"*index+b"\r")
+            until(lambda:any(c["command"]=="player_queues/play_media" and c["args"].get("media")=="library://track/browsed" and c["args"]["option"]==option for c in calls))
+        os.write(master,b"\x7fP")
+        visible("Play now (replace queue)")
+        os.write(master,b"jj\r")
+        until(lambda:any(c["command"]=="player_queues/play_media" and c["args"].get("media")=="library://playlist/playlist1" and c["args"]["option"]=="add" for c in calls))
         os.write(master,b" ")
         until(lambda:any(c["command"]=="player_queues/play_pause" for c in calls))
         os.write(master,b"/fixture\r")
@@ -83,7 +108,9 @@ with tempfile.TemporaryDirectory(prefix="matui-smoke-") as tmp:
         os.write(master,b"a")
         until(lambda:any(c["command"]=="player_queues/play_media" and c["args"]["option"]=="add" for c in calls))
         os.write(master,b"\r")
-        until(lambda:any(c["command"]=="player_queues/play_media" and c["args"]["option"]=="replace" for c in calls))
+        visible("Play now (replace queue)")
+        os.write(master,b"\r")
+        until(lambda:any(c["command"]=="player_queues/play_media" and c["args"].get("media")=="library://track/1" and c["args"]["option"]=="replace" for c in calls))
         os.write(master,b"?")
         visible("Controls")
         os.write(master,b"jj\r")
@@ -95,7 +122,7 @@ with tempfile.TemporaryDirectory(prefix="matui-smoke-") as tmp:
         os.write(master,b"q")
         assert proc.wait(timeout=5)==0
         assert termios.tcgetattr(slave)==original
-        print("Connected fixture smoke passed: players, group queue, pause, search, enqueue, replace/play, quit")
+        print("Connected fixture smoke passed: browse before player selection, playlist tracks, all queue choices, whole collection, group routing, search, controls, terminal restoration")
     finally:
         if proc.poll() is None: proc.kill();proc.wait()
         server.shutdown()

@@ -70,6 +70,9 @@ async fn main() -> Result<()> {
                         .cloned()
                         .collect();
                     app.status = "Demo search complete (fictional offline data)".into();
+                } else if let ui::Action::Browse { generation, target } = action {
+                    app.music
+                        .apply(generation, Ok((matui::music::demo_listing(&target), None)));
                 } else {
                     app.status = "Offline demo: no command was sent".into();
                 }
@@ -174,6 +177,7 @@ async fn main() -> Result<()> {
                     }
                 } else {
                     let searching = matches!(action, ui::Action::Search(_));
+                    let browsing = matches!(action, ui::Action::Browse { .. });
                     if requests
                         .try_send(matui::controller::Request::new(
                             app.selected_id.clone(),
@@ -182,9 +186,18 @@ async fn main() -> Result<()> {
                         .is_err()
                     {
                         app.status = "Busy: command not sent; try again".into();
+                        if browsing {
+                            app.music.apply(
+                                app.music.generation,
+                                Err("Busy: press r to retry loading music".into()),
+                            );
+                        }
                     } else if searching {
                         app.results.clear();
                         app.status = "Searching…".into();
+                    } else if browsing {
+                        app.status =
+                            "Browsing music · Enter opens collections; P chooses playback".into();
                     } else {
                         app.status = "Command pending…".into();
                     }

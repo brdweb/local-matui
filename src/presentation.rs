@@ -10,6 +10,7 @@ fn display(text: String) -> String {
 /// Apply network snapshots only to the player/query they were requested for.
 pub fn apply(app: &mut App, event: Update) {
     match event {
+        Update::Browse(generation, result) => app.music.apply(generation, result),
         Update::Players(players) => {
             let cursor_id = app.players.get(app.player_cursor).map(|p| p.id.clone());
             app.players = players
@@ -78,6 +79,7 @@ pub fn apply(app: &mut App, event: Update) {
                     .into_iter()
                     .map(|t| TrackView {
                         uri: t.uri,
+                        media: t.media,
                         title: display(t.title),
                         artist: display(t.artist),
                         ..Default::default()

@@ -35,6 +35,7 @@ pub struct QueueItem {
 }
 #[derive(Debug, Clone, Default)]
 pub struct Track {
+    pub media: Option<crate::music::Media>,
     pub uri: String,
     pub title: String,
     pub artist: String,
@@ -168,7 +169,7 @@ impl ApiClient {
             token: token.into(),
         })
     }
-    async fn command(&self, command: &str, args: Value) -> Result<Value> {
+    pub(crate) async fn command(&self, command: &str, args: Value) -> Result<Value> {
         let response = self
             .http
             .post(self.endpoint.clone())
@@ -328,6 +329,9 @@ impl ApiClient {
     pub async fn enqueue_uri(&self, player_id: &str, uri: &str) -> Result<()> {
         self.media(player_id, uri, "add").await
     }
+    pub async fn play_next_uri(&self, player_id: &str, uri: &str) -> Result<()> {
+        self.media(player_id, uri, "next").await
+    }
     async fn media(&self, player_id: &str, uri: &str, option: &str) -> Result<()> {
         let q = self.active_queue(player_id).await?;
         self.command(
@@ -359,6 +363,14 @@ impl ApiClient {
         ] {
             for item in v[field].as_array().into_iter().flatten().take(50) {
                 results.push(Track {
+                    media: Some(crate::music::Media::parse(
+                        item,
+                        if label.is_empty() {
+                            "track"
+                        } else {
+                            field.trim_end_matches('s')
+                        },
+                    )),
                     uri: text(item, "uri"),
                     title: if label.is_empty() {
                         text(item, "name")
