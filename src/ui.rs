@@ -19,6 +19,10 @@ pub enum Action {
     Refresh,
     Select(String),
     Search(String),
+    Browse {
+        generation: u64,
+        target: crate::music::Target,
+    },
     Toggle,
     Next,
     Previous,
@@ -26,6 +30,7 @@ pub enum Action {
     Seek(i8),
     Play(String),
     Enqueue(String),
+    PlayNext(String),
 }
 
 impl App {
@@ -76,8 +81,55 @@ impl App {
             }
             return Action::None;
         }
+        if self.focus == Focus::Music {
+            if let Some(action) = crate::music::key(self, key) {
+                return action;
+            }
+        }
+        if self.focus == Focus::Search
+            && matches!(
+                key.code,
+                KeyCode::Enter | KeyCode::Char('P') | KeyCode::Char('a') | KeyCode::Char('N')
+            )
+        {
+            if let Some(media) = self
+                .results
+                .get(self.search_cursor)
+                .and_then(|t| t.media.clone())
+            {
+                if key.code == KeyCode::Enter {
+                    if let Some(target) = media.open.clone() {
+                        self.focus = Focus::Music;
+                        self.content = Focus::Music;
+                        return self.music.navigate(target, media.title);
+                    }
+                }
+                if matches!(key.code, KeyCode::Enter | KeyCode::Char('P')) {
+                    return crate::music::choose(self, &media);
+                }
+                crate::music::choose(self, &media);
+                if self.menu.take().is_some() {
+                    return if key.code == KeyCode::Char('a') {
+                        Action::Enqueue(media.uri)
+                    } else {
+                        Action::PlayNext(media.uri)
+                    };
+                }
+                return Action::None;
+            }
+        }
         match key.code {
             KeyCode::Char('q') => Action::Quit,
+            KeyCode::F(3) | KeyCode::Char('b') => {
+                self.focus = Focus::Music;
+                self.content = Focus::Music;
+                Action::None
+            }
+            KeyCode::F(4) => {
+                self.focus = Focus::Queue;
+                self.content = Focus::Queue;
+                Action::None
+            }
             KeyCode::F(2) => Action::OpenSettings,
             KeyCode::Char('?') | KeyCode::F(1) => {
                 self.menu = Some(crate::controls::Menu::new(self));
@@ -86,29 +138,60 @@ impl App {
             KeyCode::Char('/') => {
                 self.editing = true;
                 self.focus = Focus::Search;
+                self.content = Focus::Search;
                 self.query.clear();
                 Action::None
             }
-            KeyCode::Tab => {
-                self.focus = match self.focus {
-                    Focus::Players => Focus::Queue,
-                    Focus::Queue => Focus::Search,
-                    Focus::Search => Focus::Players,
+            KeyCode::Tab | KeyCode::BackTab => {
+                self.focus = if key.code == KeyCode::BackTab {
+                    match self.focus {
+                        Focus::Players => Focus::Search,
+                        Focus::Music => Focus::Players,
+                        Focus::Queue => Focus::Music,
+                        Focus::Search => Focus::Queue,
+                    }
+                } else {
+                    match self.focus {
+                        Focus::Players => Focus::Music,
+                        Focus::Music => Focus::Queue,
+                        Focus::Queue => Focus::Search,
+                        Focus::Search => Focus::Players,
+                    }
                 };
+                if self.focus != Focus::Players {
+                    self.content = self.focus;
+                }
                 Action::None
             }
             KeyCode::Esc => {
                 self.focus = Focus::Queue;
+                self.content = Focus::Queue;
                 Action::None
             }
-            KeyCode::Down | KeyCode::Char('j') | KeyCode::Up | KeyCode::Char('k') => {
+            KeyCode::Down
+            | KeyCode::Char('j')
+            | KeyCode::Up
+            | KeyCode::Char('k')
+            | KeyCode::PageDown
+            | KeyCode::PageUp
+            | KeyCode::Home
+            | KeyCode::End => {
                 let down = matches!(key.code, KeyCode::Down | KeyCode::Char('j'));
                 let (cursor, len) = match self.focus {
                     Focus::Players => (&mut self.player_cursor, self.players.len()),
                     Focus::Queue => (&mut self.queue_cursor, self.queue.len()),
                     Focus::Search => (&mut self.search_cursor, self.results.len()),
+                    Focus::Music => (&mut self.music.page.cursor, self.music.page.items.len()),
                 };
-                *cursor = if down {
+                *cursor = if key.code == KeyCode::Home {
+                    0
+                } else if key.code == KeyCode::End {
+                    len.saturating_sub(1)
+                } else if key.code == KeyCode::PageDown {
+                    cursor.saturating_add(10).min(len.saturating_sub(1))
+                } else if key.code == KeyCode::PageUp {
+                    cursor.saturating_sub(10)
+                } else if down {
                     cursor.saturating_add(1).min(len.saturating_sub(1))
                 } else {
                     cursor.saturating_sub(1)
@@ -125,6 +208,8 @@ impl App {
                     self.artist.clear();
                     self.elapsed = 0.0;
                     self.duration = 0.0;
+                    self.focus = Focus::Music;
+                    self.content = Focus::Music;
                     Action::Select(p.id.clone())
                 } else {
                     Action::None
@@ -235,6 +320,7 @@ pub struct PlayerView {
 
 #[derive(Clone, Default)]
 pub struct TrackView {
+    pub media: Option<crate::music::Media>,
     pub id: String,
     pub uri: String,
     pub title: String,
@@ -246,11 +332,14 @@ pub struct TrackView {
 pub enum Focus {
     #[default]
     Players,
+    Music,
     Queue,
     Search,
 }
 
 pub struct App {
+    pub music: crate::music::Browser,
+    pub content: Focus,
     pub menu: Option<crate::controls::Menu>,
     pub queue_id: String,
     pub queue_details: serde_json::Value,
@@ -280,6 +369,8 @@ pub struct App {
 impl Default for App {
     fn default() -> Self {
         Self {
+            music: crate::music::Browser::default(),
+            content: Focus::Music,
             menu: None,
             queue_id: String::new(),
             queue_details: serde_json::Value::Null,
@@ -437,70 +528,74 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         cols[0],
         &mut state,
     );
-    let search = app.focus == Focus::Search || app.editing;
-    let tracks = if search { &app.results } else { &app.queue };
-    let cursor = if search {
-        app.search_cursor
+    if app.content == Focus::Music && !app.editing {
+        crate::music::draw(frame, app, cols[1]);
     } else {
-        app.queue_cursor
-    };
-    let title = if search {
-        format!(" SEARCH · {} results ", tracks.len())
-    } else {
-        let shuffle = if app.queue_details["shuffle_enabled"] == true {
-            "on"
+        let search = app.content == Focus::Search || app.focus == Focus::Search || app.editing;
+        let tracks = if search { &app.results } else { &app.queue };
+        let cursor = if search {
+            app.search_cursor
         } else {
-            "off"
+            app.queue_cursor
         };
-        let repeat = match app.queue_details["repeat_mode"].as_str() {
-            Some("all") => "all",
-            Some("one") => "one",
-            _ => "off",
-        };
-        format!(
-            " QUEUE · {} items · shuffle {shuffle} · repeat {repeat} ",
-            tracks.len()
-        )
-    };
-    let items: Vec<ListItem> = tracks
-        .iter()
-        .enumerate()
-        .map(|(i, t)| {
-            ListItem::new(vec![
-                Line::from(format!(
-                    "{:>3}  {}  {}",
-                    i + 1,
-                    t.title,
-                    duration(t.duration)
-                )),
-                Line::styled(
-                    format!("     {}", t.artist),
-                    Style::default().fg(palette.secondary),
-                ),
-            ])
-        })
-        .collect();
-    if tracks.is_empty() {
-        frame.render_widget(
-            Paragraph::new(if search {
-                "  / search for tracks across providers"
+        let title = if search {
+            format!(" SEARCH · {} results ", tracks.len())
+        } else {
+            let shuffle = if app.queue_details["shuffle_enabled"] == true {
+                "on"
             } else {
-                "  Queue is empty or not loaded"
+                "off"
+            };
+            let repeat = match app.queue_details["repeat_mode"].as_str() {
+                Some("all") => "all",
+                Some("one") => "one",
+                _ => "off",
+            };
+            format!(
+                " QUEUE · {} items · shuffle {shuffle} · repeat {repeat} ",
+                tracks.len()
+            )
+        };
+        let items: Vec<ListItem> = tracks
+            .iter()
+            .enumerate()
+            .map(|(i, t)| {
+                ListItem::new(vec![
+                    Line::from(format!(
+                        "{:>3}  {}  {}",
+                        i + 1,
+                        t.title,
+                        duration(t.duration)
+                    )),
+                    Line::styled(
+                        format!("     {}", t.artist),
+                        Style::default().fg(palette.secondary),
+                    ),
+                ])
             })
-            .block(panel(palette, &title, app.focus != Focus::Players)),
-            cols[1],
-        );
-    } else {
-        let mut state =
-            ListState::default().with_selected(Some(cursor.min(tracks.len().saturating_sub(1))));
-        frame.render_stateful_widget(
-            List::new(items)
-                .block(panel(palette, &title, app.focus != Focus::Players))
-                .highlight_style(Style::default().bg(palette.selection))
-                .highlight_symbol("› "),
-            cols[1],
-            &mut state,
-        );
+            .collect();
+        if tracks.is_empty() {
+            frame.render_widget(
+                Paragraph::new(if search {
+                    "  / search for tracks across providers"
+                } else {
+                    "  Queue is empty or not loaded"
+                })
+                .block(panel(palette, &title, app.focus != Focus::Players)),
+                cols[1],
+            );
+        } else {
+            let mut state = ListState::default()
+                .with_selected(Some(cursor.min(tracks.len().saturating_sub(1))));
+            frame.render_stateful_widget(
+                List::new(items)
+                    .block(panel(palette, &title, app.focus != Focus::Players))
+                    .highlight_style(Style::default().bg(palette.selection))
+                    .highlight_symbol("› "),
+                cols[1],
+                &mut state,
+            );
+        }
     }
     let message = if app.editing {
         format!("Search: {}▏  [Enter: submit · Esc: cancel]", app.query)
@@ -515,7 +610,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         ),
         rows[3],
     );
-    frame.render_widget(Paragraph::new("Tab pane · ↑↓/jk move · Space pause · n/p skip · +/- volume · ←→ seek\n/ search · Enter play* · a enqueue · Esc queue · r refresh · F2 settings · ? controls · q quit (*replaces queue)")
+    frame.render_widget(Paragraph::new("b/F3 music · / search · Enter open/choose · P play collection · a add · N next · Backspace back · ] page\nTab pane · Esc/F4 queue · Space pause · +/- volume · F2 settings · ? controls · q quit")
         .style(Style::default().fg(palette.secondary)), rows[4]);
 }
 

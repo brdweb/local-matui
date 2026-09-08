@@ -53,9 +53,16 @@ credentials or audio. URL userinfo, query strings and fragments are rejected.
 
 ## Playback and player controls
 
+Select a speaker with Enter, then browse the **Music** pane. It opens with
+playlists, albums, artists, tracks, radio, favorite tracks and provider browsing.
+Enter opens a collection or folder; on a track it offers **Play now (replace
+queue)**, **Play next**, or **Add to queue**, naming the destination speaker.
+Press **P** on an album or playlist to choose playback for the whole collection.
+Browsing works before selecting a speaker and does not start playback.
+
 | Key | Action |
 | --- | --- |
-| Tab | Cycle players, queue and search panes |
+| Tab / Shift-Tab | Cycle players, music, queue and search panes |
 | Up/Down or j/k | Move highlighted row |
 | Enter in players | Select a player without starting playback |
 | Space | Play/pause selected player's MA queue |
@@ -64,14 +71,19 @@ credentials or audio. URL userinfo, query strings and fragments are rejected.
 | + / - | Volume up/down 5 points |
 | Left / Right | Seek backward/forward 10 seconds |
 | / | Search; Enter submits, Esc cancels |
-| a in search | Append highlighted result |
-| Enter in search | **Replace queue and play highlighted result** |
+| b / F3 | Open music browser |
+| Enter in music/search | Open collection or choose playback for an item |
+| P in music/search | Choose playback for the whole highlighted collection/item |
+| a / N in music/search | Add to queue / play next |
+| Backspace in music | Go back, restoring the previous selection |
+| ] in music | Next library page (100 items per page) |
+| Esc / F4 | Open queue |
 | Enter in queue | Play highlighted existing queue item |
 | Delete in queue | Remove highlighted item |
 | Shift-J / Shift-K in queue | Move item down/up |
 | ? / F1 | Open playback/player controls |
 | F2 | Connection settings (temporarily disconnects local speaker) |
-| r | Refresh |
+| r | Reload music listing, or refresh player/queue state in other panes |
 | q / Ctrl-C | Quit and restore terminal |
 
 The controls menu includes direct player transport (including external sources),
@@ -83,9 +95,10 @@ Numeric controls and media URIs have input screens. Enter applies the selected
 menu action; Esc returns. Page Up/Down and Home/End navigate long lists.
 
 Search includes tracks, albums, artists, playlists, radio, audiobooks and podcasts
-(up to 50 results per type). Entering a media URI also supports playing or queuing
-provider/library items without a dedicated browser. The controls menu provides
-play-next and play-immediately options for the highlighted search result.
+(up to 50 results per type). Album and playlist results open their tracks; artists
+open albums and a top-tracks folder. Provider folders can expose music outside
+your saved library. Empty or failed listings offer back/search/retry guidance.
+The controls menu also accepts media URIs for playback and queueing.
 
 Controls target the selected player. Group queue ownership is resolved separately
 from player volume. Queue item edits retain the displayed queue identity and are
@@ -125,10 +138,13 @@ by the local installation above.
 ## Verification and boundaries
 
 The API integration targets Music Assistant **2.10.2**, using its versioned server
-sources. Automated checks use local protocol fixtures. The local desktop keyring
+sources. The user's server reports that version; login and speaker listing are
+confirmed. Read-only terminal checks also verified album listings, album tracks,
+back navigation and provider browsing. Automated playback checks use local protocol
+fixtures. The local desktop keyring
 round-trip and CPAL/ALSA null-output tests have also been exercised on this laptop.
-**A live Music Assistant login, speaker registration and audible playback still
-require validation against the user's server.** No multi-room sync claim is made.
+**Local speaker registration and audible playback still require validation
+against the user's server.** No multi-room sync claim is made.
 
 ```sh
 cargo fmt --check
@@ -153,7 +169,7 @@ across application restarts. Upstream Sendspin receivers are unbounded and audio
 callbacks use locks; there is no global real-time/lock-free guarantee.
 
 Matui does not administer users, providers, DSP or the MA server. It has no
-dedicated library browser, album art or desktop media-key integration. Player
+album art or desktop media-key integration. Player
 support varies; server rejections appear as command errors. Application licensing
 and public-distribution review remain outstanding.
 

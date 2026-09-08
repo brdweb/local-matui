@@ -337,12 +337,17 @@ async fn controls_route_transport_to_active_queue_but_volume_to_player() {
 }
 #[tokio::test]
 async fn play_explicitly_replaces_while_enqueue_adds() {
-    for option in ["replace", "add"] {
+    for option in ["replace", "add", "next"] {
         let (url, task) = server(vec![ok(json!({"queue_id":"leader"})), ok(Value::Null)]).await;
         let client = ApiClient::new(&url, "test-secret").unwrap();
         if option == "replace" {
             client
                 .play_uri("member", "library://track/1")
+                .await
+                .unwrap();
+        } else if option == "next" {
+            client
+                .play_next_uri("member", "library://track/1")
                 .await
                 .unwrap();
         } else {
@@ -483,6 +488,101 @@ async fn optional_metadata_can_be_missing_or_null() {
 }
 fn ok(v: Value) -> (u16, String) {
     (200, v.to_string())
+}
+
+#[tokio::test]
+async fn library_browse_paginates_and_preserves_favorite_filter() {
+    use matui::music::{Kind, Target, PAGE_SIZE};
+    let rows:Vec<_>=(0..PAGE_SIZE).map(|i|json!({"item_id":i.to_string(),"provider":"library","media_type":"track","name":"Fixture","uri":format!("library://track/{i}")})).collect();
+    let (url, task) = server(vec![ok(json!(rows)), ok(json!([]))]).await;
+    let api = ApiClient::new(&url, "test-secret").unwrap();
+    let target = Target::Library {
+        kind: Kind::Tracks,
+        offset: 0,
+        favorite: true,
+    };
+    let (items, next) = api.browse(&target).await.unwrap();
+    assert_eq!(items.len(), 100);
+    assert!(items[0].playable);
+    let (items, next) = api.browse(&next.unwrap()).await.unwrap();
+    assert!(items.is_empty());
+    assert!(next.is_none());
+    let calls = task.await.unwrap();
+    assert_eq!(calls[0]["command"], "music/tracks/library_items");
+    assert_eq!(
+        calls[1]["args"],
+        json!({"limit":100,"offset":100,"order_by":"sort_name","favorite":true})
+    );
+}
+
+#[tokio::test]
+async fn browse_routes_collections_and_provider_folders_without_player_commands() {
+    use matui::music::{Kind, Target};
+    let args = json!({"item_id":"fixture","provider_instance_id_or_domain":"provider"});
+    for (target, command, expected) in [
+        (
+            Target::Album {
+                id: "fixture".into(),
+                provider: "provider".into(),
+            },
+            "music/albums/album_tracks",
+            args.clone(),
+        ),
+        (
+            Target::Playlist {
+                id: "fixture".into(),
+                provider: "provider".into(),
+            },
+            "music/playlists/playlist_tracks",
+            args.clone(),
+        ),
+        (
+            Target::Artist {
+                id: "fixture".into(),
+                provider: "provider".into(),
+            },
+            "music/artists/artist_albums",
+            args.clone(),
+        ),
+        (
+            Target::ArtistTracks {
+                id: "fixture".into(),
+                provider: "provider".into(),
+            },
+            "music/artists/artist_tracks",
+            args,
+        ),
+        (
+            Target::Providers {
+                path: Some("provider://browse/folder".into()),
+            },
+            "music/browse",
+            json!({"path":"provider://browse/folder"}),
+        ),
+        (
+            Target::Library {
+                kind: Kind::Radio,
+                offset: 0,
+                favorite: false,
+            },
+            "music/radios/library_items",
+            json!({"limit":100,"offset":0,"order_by":"sort_name","favorite":null}),
+        ),
+    ] {
+        let (url, task) = server(vec![ok(json!([]))]).await;
+        let (items, _) = ApiClient::new(&url, "test-secret")
+            .unwrap()
+            .browse(&target)
+            .await
+            .unwrap();
+        if matches!(target, Target::Artist { .. }) {
+            assert!(matches!(items[0].open, Some(Target::ArtistTracks { .. })));
+        }
+        let calls = task.await.unwrap();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0]["command"], command);
+        assert_eq!(calls[0]["args"], expected);
+    }
 }
 
 #[tokio::test]

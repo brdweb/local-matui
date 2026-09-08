@@ -11,6 +11,10 @@ pub enum Update {
     Queue(String, Result<Queue, String>),
     Offline(String),
     Search(String, Result<Vec<Track>, String>),
+    Browse(
+        u64,
+        Result<(Vec<crate::music::Media>, Option<crate::music::Target>), String>,
+    ),
     Notice(String),
 }
 
@@ -50,13 +54,18 @@ impl Controller {
                     changed = selected.changed() => { if changed.is_err() { break; } },
                     command = commands.recv() => {
                         let Some(command) = command else { break; };
-                        if command.issued.elapsed() > Duration::from_secs(3) {
+                        if command.issued.elapsed() > Duration::from_secs(3) && !matches!(command.action, Action::Browse {..} | Action::Search(_)) {
                             let _ = tx.send(Update::Notice("Command expired; press the key again".into())).await;
                             continue;
                         }
                         if let Action::Search(query) = command.action {
                             let result = api.search(&query).await.map_err(|e|e.to_string());
                             if tx.send(Update::Search(query,result)).await.is_err() { break; }
+                            continue;
+                        }
+                        if let Action::Browse {generation, target} = command.action {
+                            let result = api.browse(&target).await.map_err(|e|e.to_string());
+                            if tx.send(Update::Browse(generation,result)).await.is_err() { break; }
                             continue;
                         }
                         if !matches!(command.action, Action::Refresh) {
@@ -138,6 +147,7 @@ async fn execute(api: &ApiClient, request: Request) -> anyhow::Result<()> {
         }
         Action::Play(uri) => api.play_uri(&player, &uri).await,
         Action::Enqueue(uri) => api.enqueue_uri(&player, &uri).await,
+        Action::PlayNext(uri) => api.play_next_uri(&player, &uri).await,
         Action::Command(command) => api.playback_command(&player, command).await,
         _ => Ok(()),
     }

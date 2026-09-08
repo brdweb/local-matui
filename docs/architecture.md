@@ -99,8 +99,8 @@ clock invalidation on an actual null-output player.
   edits carry the displayed queue ID and compare it with fresh active-queue
   ownership before mutation. Numeric entry rejects NaN, infinity, fractions for
   integer controls and out-of-range values.
-- Search aggregates playable media types, with 50 results per type; no dedicated
-  library browser. Player capabilities and server command failures remain visible.
+- Search aggregates playable media types, with 50 results per type. Player
+  capabilities and server command failures remain visible.
 
 Additional official integration sources inspected:
 
@@ -130,3 +130,35 @@ verifies that retry succeeds without repasting or calling the password-login
 endpoint. Server-info preflight rejects HTML/dashboard URLs before API token
 submission. HTTP 405 errors identify the rejected API method and advise checking
 the base URL/proxy route, without echoing response bodies.
+
+## Music selection (2026-09-08)
+
+The default content pane is a read-only music browser. Library categories use
+`music/{media_type}s/library_items` with 100-item offset pages and optional
+favorite filtering. Provider browsing follows server-returned folder paths.
+Album/playlist rows open track listings; artist rows open albums with a top-tracks
+folder. Search results retain item/provider identity and use the same navigation.
+History restores the prior cursor; generation IDs discard replies after back or
+new navigation. Loading, empty, failure and retry states remain inside the pane.
+
+Enter on a playable leaf, or P on a collection, opens a menu showing the speaker
+and explicit replace/next/add queue options. Browse requests need no selected
+player. Playback requests retain the chosen player, check its availability at
+submission, and resolve its active group queue before sending `play_media`.
+Navigation never issues playback commands. The demo uses fictional catalog data.
+
+Official 2.10.2 command/argument references:
+
+- https://github.com/music-assistant/server/blob/2.10.2/music_assistant/controllers/music/media/base.py
+- https://github.com/music-assistant/server/blob/2.10.2/music_assistant/controllers/music/media/albums.py
+- https://github.com/music-assistant/server/blob/2.10.2/music_assistant/controllers/music/media/artists.py
+- https://github.com/music-assistant/server/blob/2.10.2/music_assistant/controllers/music/media/playlists.py
+- https://github.com/music-assistant/server/blob/2.10.2/music_assistant/controllers/music/media/radio.py
+
+Read-only checks against the configured server confirmed version 2.10.2/schema 65
+and library/provider listing endpoints. No credentials or returned personal media
+are retained in test fixtures. A live `--remote-only` PTY check verified album
+listing, album tracks, back navigation and provider listing using the saved login;
+radio and favorite-track endpoints also succeeded in read-only checks. The connected PTY fixture checks browse before
+speaker selection, playlist drill-down, track and whole-collection queue actions,
+search, and group queue routing. Audible/live playback is a separate manual check.
