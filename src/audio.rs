@@ -248,6 +248,9 @@ pub(crate) trait Output: 'static {
     fn clear(&mut self);
     fn gain(&mut self, gain: Gain);
     fn failed(&self) -> bool;
+    fn failure_detail(&self) -> &'static str {
+        "Audio output failed"
+    }
 }
 enum Work {
     Begin(StreamPlayerConfig, SharedClock, Gain, bool),
@@ -263,6 +266,49 @@ fn status(tx: &watch::Sender<AudioStatus>, state: &str, detail: &str) {
     tx.send_replace(AudioStatus {
         state: state.into(),
         detail: detail.into(),
+    });
+}
+
+// Only app-owned fixed messages may reach the TUI; decoder/driver errors can
+// otherwise contain arbitrary peer data or local configuration.
+fn safe_audio_error(error: &anyhow::Error) -> &'static str {
+    let message = error.to_string();
+    for safe in [
+        "Unsupported audio stream format",
+        "Invalid audio codec header",
+        "Invalid FLAC stream information",
+        "FLAC stream information disagrees with negotiation",
+        "Invalid FLAC header",
+        "Invalid Opus format",
+        "Unsupported audio codec",
+        "Invalid audio frame size",
+        "Audio decoding failed",
+        "Invalid decoded audio size",
+        "Audio output stream creation failed",
+        "Selected audio output device not found",
+        "No default audio output device",
+        "Audio output configuration unavailable",
+        "Audio output formats unavailable",
+        "No supported audio output formats",
+        "Audio command queue overflow",
+    ] {
+        if message == safe {
+            return safe;
+        }
+    }
+    "Audio output or decoding failed"
+}
+
+fn worker_stopped(tx: &watch::Sender<AudioStatus>) {
+    tx.send_if_modified(|current| {
+        if current.state == "failed" {
+            return false;
+        }
+        *current = AudioStatus {
+            state: "failed".into(),
+            detail: "Audio worker stopped".into(),
+        };
+        true
     });
 }
 
@@ -306,17 +352,15 @@ where
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 let mut output = match factory() {
                     Ok(o) => o,
-                    Err(_) => {
-                        let _ =
-                            ready_tx.send(Err(anyhow::anyhow!("Audio output device unavailable")));
+                    Err(error) => {
+                        let _ = ready_tx.send(Err(safe_audio_error(&error)));
                         return;
                     }
                 };
                 let formats = match output.formats() {
                     Ok(f) if !f.is_empty() => f,
                     _ => {
-                        let _ = ready_tx
-                            .send(Err(anyhow::anyhow!("No supported audio output formats")));
+                        let _ = ready_tx.send(Err("No supported audio output formats"));
                         return;
                     }
                 };
@@ -325,7 +369,7 @@ where
                 let mut decoder: Option<StreamDecoder> = None;
                 let mut setup: Option<(StreamPlayerConfig, SharedClock)> = None;
                 let mut active = false;
-                let mut failed = false;
+                let mut failed = None;
                 while !worker_stop.load(Ordering::Acquire) {
                     let new_epoch = worker_epoch.load(Ordering::Acquire);
                     if current_epoch != new_epoch {
@@ -336,7 +380,7 @@ where
                         current_epoch = new_epoch;
                     }
                     if output.failed() {
-                        failed = true;
+                        failed = Some(output.failure_detail());
                         break;
                     }
                     let (generation, event) = match work_rx.recv_timeout(Duration::from_millis(10))
@@ -414,15 +458,15 @@ where
                         }
                         Ok(())
                     })();
-                    if result.is_err() {
-                        failed = true;
+                    if let Err(error) = result {
+                        failed = Some(safe_audio_error(&error));
                         break;
                     }
                 }
                 output.clear();
-                if failed {
+                if let Some(detail) = failed {
+                    status(&worker_status, "failed", detail);
                     let _ = feedback_tx.try_send((current_epoch, Feedback::Failed));
-                    status(&worker_status, "failed", "Audio output or decoding failed");
                 }
             }));
             if result.is_err() {
@@ -444,18 +488,19 @@ where
                 let result=tokio::select! {
                     biased;
                     _=cancellation.changed()=>break,
-                    _=&mut done_rx=>{worker_finished=true;status(&status_tx,"failed","Audio worker stopped");break;},
+                    _=&mut done_rx=>{worker_finished=true;worker_stopped(&status_tx);break;},
                     r=session(&config,&url,&formats,&mut gain,SessionIo {work:&work_tx,epoch:&epoch,feedback:&mut feedback_rx},&status_tx)=>r,
                 };
                 epoch.fetch_add(1,Ordering::AcqRel);
-                if feedback_rx.is_closed() {status(&status_tx,"failed","Audio worker stopped");break;}
+                if status_tx.borrow().state=="failed" {break;}
+                if feedback_rx.is_closed() {worker_stopped(&status_tx);break;}
                 let detail=result.err().map(|e|e.to_string()).unwrap_or_else(||"Audio connection closed".into());
                 status(&status_tx,"reconnecting",&detail);
                 if started.elapsed() > Duration::from_secs(30) {retry=Duration::from_millis(250);}
-                tokio::select! {biased; _=cancellation.changed()=>break, _=&mut done_rx=>{worker_finished=true;status(&status_tx,"failed","Audio worker stopped");break;}, _=tokio::time::sleep(retry)=>{}}
+                tokio::select! {biased; _=cancellation.changed()=>break, _=&mut done_rx=>{worker_finished=true;worker_stopped(&status_tx);break;}, _=tokio::time::sleep(retry)=>{}}
                 retry=(retry*2).min(Duration::from_secs(30));
             }
-        } else if !*cancellation.borrow() {status(&status_tx,"failed","Audio output initialization failed");}
+        } else if !*cancellation.borrow() {status(&status_tx,"failed",ready.and_then(Result::err).unwrap_or("Audio output initialization failed"));}
         task_stop.store(true,Ordering::Release);
         drop(work_tx);
         // Never block a Tokio executor on a device driver. Rust cannot kill a
@@ -657,7 +702,15 @@ pub(crate) struct QueueBudget {
     // Server microseconds, independent of mutable clock-sync estimates.
     last_end: Option<i128>,
     delay: u16,
+    error: Option<&'static str>,
 }
+
+// MA 2.10.2's aiosendspin 9.1.1 accounts ENCODED bytes and permits a 30s
+// buffered horizon. Our i32 queue needs up to 30 * 96000 * 2 * 4 bytes,
+// independently of the 2 MiB encoded capacity advertised in client/hello.
+const MAX_DECODED_QUEUE_BYTES: usize = 32 * 1024 * 1024;
+const MAX_QUEUE_HORIZON: Duration = Duration::from_secs(35);
+const MAX_QUEUED_CHUNKS: usize = 4096;
 impl QueueBudget {
     pub(crate) fn set_delay(&mut self, delay: u16) -> bool {
         if self.delay == delay {
@@ -688,15 +741,24 @@ impl QueueBudget {
         // completed entry, not only a presumed time-ordered prefix.
         self.pending.retain(|(end, _)| *end > now);
         // A 2us tolerance accommodates integer timestamp rounding between chunks.
-        if duration > Duration::from_secs(2)
-            || when > now + Duration::from_secs(2)
-            || self
-                .last_end
-                .is_some_and(|previous| i128::from(server_timestamp) + 2 < previous)
-            || bytes > 2 * 1024 * 1024
-            || self.pending.iter().map(|(_, n)| *n).sum::<usize>() + bytes > 2 * 1024 * 1024
-            || self.pending.len() >= 256
+        self.error = if duration > Duration::from_secs(2) || bytes > 2 * 1024 * 1024 {
+            Some("Audio chunk exceeds supported size")
+        } else if when > now + MAX_QUEUE_HORIZON {
+            Some("Audio timestamp exceeds supported buffer horizon")
+        } else if self
+            .last_end
+            .is_some_and(|previous| i128::from(server_timestamp) + 2 < previous)
         {
+            Some("Audio chunks have overlapping timestamps")
+        } else if self.pending.iter().map(|(_, n)| *n).sum::<usize>() + bytes
+            > MAX_DECODED_QUEUE_BYTES
+            || self.pending.len() >= MAX_QUEUED_CHUNKS
+        {
+            Some("Decoded audio buffer capacity exceeded")
+        } else {
+            None
+        };
+        if self.error.is_some() {
             return false;
         }
         self.last_end = Some(i128::from(server_timestamp) + duration.as_micros() as i128);
@@ -713,7 +775,7 @@ struct DeviceOutput {
     // Library's decoded queue is unbounded. Track scheduled buffers ourselves,
     // rejecting excessive or overlapping timestamps before enqueueing.
     queued: QueueBudget,
-    failed: bool,
+    failed: Option<&'static str>,
 }
 impl DeviceOutput {
     fn new(id: Option<&str>) -> Result<Self> {
@@ -750,7 +812,7 @@ impl DeviceOutput {
             player: None,
             clock: None,
             queued: Default::default(),
-            failed: false,
+            failed: None,
         })
     }
 }
@@ -803,7 +865,7 @@ impl Output for DeviceOutput {
             player.static_delay_ms(),
             bytes,
         ) {
-            self.failed = true;
+            self.failed = Some(self.queued.error.unwrap_or("Invalid audio timestamp"));
             player.clear();
             return;
         }
@@ -836,7 +898,11 @@ impl Output for DeviceOutput {
         }
     }
     fn failed(&self) -> bool {
-        self.failed || self.player.as_ref().is_some_and(|p| p.has_error())
+        self.failed.is_some() || self.player.as_ref().is_some_and(|p| p.has_error())
+    }
+    fn failure_detail(&self) -> &'static str {
+        self.failed
+            .unwrap_or("Audio output device reported a stream error")
     }
 }
 
@@ -866,6 +932,55 @@ pub(crate) fn proxy_url(base: &str) -> Result<url::Url> {
 #[cfg(test)]
 mod device_output_tests {
     use super::*;
+
+    #[test]
+    #[ignore = "requires Linux ALSA null output; run explicitly"]
+    fn synchronized_output_accepts_full_advertised_pcm_buffer() {
+        let mut output = DeviceOutput::new(Some("alsa:null")).unwrap();
+        let mut sync = sendspin::sync::ClockSync::default();
+        std::thread::sleep(Duration::from_millis(2));
+        let now = sync.clock().now_micros();
+        sync.update(now - 500, now - 450, now - 450, now - 400);
+        sync.update(now - 100, now - 50, now - 50, now);
+        assert!(sync.is_synchronized());
+        let start = sync.client_to_server_micros(now).unwrap() + 500_000;
+        let clock = Arc::new(parking_lot::Mutex::new(sync));
+        let format = AudioFormat {
+            codec: Codec::Pcm,
+            sample_rate: 48000,
+            channels: 2,
+            bit_depth: 16,
+            codec_header: None,
+        };
+        output
+            .begin(
+                format.clone(),
+                clock,
+                Gain {
+                    volume: 0,
+                    muted: true,
+                    delay: 0,
+                },
+            )
+            .unwrap();
+        for index in 0..540 {
+            output.write(AudioBuffer {
+                timestamp: start + index * 20_000,
+                samples: vec![0; 1920].into(),
+                format: format.clone(),
+            });
+            assert!(
+                !output.failed(),
+                "{} at chunk {index}",
+                output.failure_detail()
+            );
+        }
+        assert!(
+            output.queued.pending.len() > 500,
+            "buffers must pass through real synchronized output"
+        );
+        output.clear();
+    }
 
     #[test]
     #[ignore = "requires Linux ALSA null output; run explicitly"]

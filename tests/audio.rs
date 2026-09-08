@@ -533,7 +533,7 @@ fn queue_budget_accounts_for_static_delay_and_rejects_overlap_and_floods() {
     let mut budget = audio::QueueBudget::default();
     assert!(!budget.accept(
         now,
-        (20_000_000, now + Duration::from_secs(20)),
+        (120_000_000, now + Duration::from_secs(120)),
         Duration::from_millis(20),
         0,
         3840
@@ -545,6 +545,94 @@ fn queue_budget_accounts_for_static_delay_and_rejects_overlap_and_floods() {
         0,
         3 * 1024 * 1024
     ));
+}
+
+#[test]
+fn queue_accepts_the_pcm_buffer_capacity_advertised_to_music_assistant() {
+    let now = std::time::Instant::now();
+    let mut budget = audio::QueueBudget::default();
+    // MA accounts encoded bytes. 2 MiB of 48 kHz stereo PCM16 spans almost
+    // 11 seconds and expands to almost 4 MiB in the i32 output queue.
+    for index in 0..540 {
+        let offset = Duration::from_millis(500 + index * 20);
+        assert!(
+            budget.accept(
+                now,
+                (offset.as_micros() as i64, now + offset),
+                Duration::from_millis(20),
+                0,
+                1920 * 4
+            ),
+            "legal advertised buffer rejected at chunk {index}"
+        );
+    }
+}
+
+#[test]
+fn compressed_audio_horizon_fits_but_decoded_memory_remains_bounded() {
+    let now = std::time::Instant::now();
+    let mut budget = audio::QueueBudget::default();
+    // Worst supported format: 30s stereo 96kHz decoded into i32 samples.
+    for index in 0..1500 {
+        let offset = Duration::from_millis(500 + index * 20);
+        assert!(budget.accept(
+            now,
+            (offset.as_micros() as i64, now + offset),
+            Duration::from_millis(20),
+            0,
+            3840 * 4
+        ));
+    }
+    let mut budget = audio::QueueBudget::default();
+    // Artificially huge chunks at tiny timestamp increments must still fail
+    // the aggregate memory bound, even inside the permitted horizon.
+    for index in 0..32 {
+        let offset = Duration::from_millis(500 + index * 20);
+        assert!(budget.accept(
+            now,
+            (offset.as_micros() as i64, now + offset),
+            Duration::from_millis(20),
+            0,
+            1024 * 1024
+        ));
+    }
+    assert!(!budget.accept(
+        now,
+        (2_000_000, now + Duration::from_secs(2)),
+        Duration::from_millis(20),
+        0,
+        1024 * 1024
+    ));
+}
+
+#[tokio::test]
+async fn decoder_failure_reason_survives_worker_shutdown_without_peer_data() {
+    use tokio_tungstenite::tungstenite::Message as Ws;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move {
+        let (tcp, _) = listener.accept().await.unwrap();
+        let mut ws = tokio_tungstenite::accept_async(tcp).await.unwrap();
+        fixture_json(&mut ws).await;
+        ws.send(Ws::text(r#"{"type":"auth_ok"}"#)).await.unwrap();
+        fixture_json(&mut ws).await;
+        ws.send(Ws::text(r#"{"type":"server/hello","payload":{"server_id":"fixture","name":"Fixture","version":1,"active_roles":["player@v1"],"connection_reason":"playback"}}"#)).await.unwrap();
+        ws.send(Ws::text(r#"{"type":"stream/start","payload":{"player":{"codec":"private-peer-value","channels":2,"sample_rate":48000,"bit_depth":16}}}"#)).await.unwrap();
+        while let Some(Ok(_)) = ws.next().await {}
+    });
+    let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let mut handle =
+        audio::start_with_output(config(base), move || Ok(FixtureOutput(events))).unwrap();
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while handle.status.changed().await.is_ok() {}
+    })
+    .await
+    .unwrap();
+    let state = handle.status.borrow().clone();
+    assert_eq!(state.state, "failed");
+    assert_eq!(state.detail, "Unsupported audio stream format");
+    handle.shutdown().await;
+    server.await.unwrap();
 }
 
 struct FaultFixture(std::sync::Arc<std::sync::atomic::AtomicBool>);
@@ -621,6 +709,16 @@ fn queue_budget_expires_reordered_local_deadlines_without_losing_bounds() {
     let now = std::time::Instant::now();
     let mut budget = audio::QueueBudget::default();
     let duration = Duration::from_micros(10);
+    // Fill 30 MiB of the 32 MiB bound before the two reordered entries.
+    for n in 0..15 {
+        assert!(budget.accept(
+            now,
+            (-150 + n * 10, now + Duration::from_secs(1)),
+            duration,
+            0,
+            2 * 1024 * 1024
+        ));
+    }
     // A 100us clock shift moves the second deadline before the first.
     assert!(budget.accept(
         now,
@@ -661,7 +759,7 @@ fn queue_budget_expires_reordered_local_deadlines_without_losing_bounds() {
         "real server overlap despite later local mapping"
     );
     let mut budget = audio::QueueBudget::default();
-    for n in 0..256 {
+    for n in 0..4096 {
         assert!(budget.accept(
             now,
             (n * 10, now + Duration::from_micros(100 + n as u64 * 10)),
@@ -673,7 +771,7 @@ fn queue_budget_expires_reordered_local_deadlines_without_losing_bounds() {
     assert!(
         !budget.accept(
             now,
-            (2560, now + Duration::from_micros(2660)),
+            (40960, now + Duration::from_micros(41060)),
             duration,
             0,
             1

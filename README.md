@@ -156,8 +156,8 @@ uv run --with pyte python tests/terminal_smoke.py target/release/matui sigterm
 uv run --with pyte python tests/connected_smoke.py target/release/matui
 uv run --with pyte python tests/settings_smoke.py target/release/matui
 uv run --with pyte python tests/settings_smoke.py target/release/matui token
-cargo test --test audio_null --locked -- --ignored
-cargo test --locked --lib -- --ignored
+cargo test --test audio_null --locked -- --ignored  # null + silent default-output tests
+cargo test --locked --lib -- --ignored  # synchronized null-output buffering/delay tests
 # Uses then deletes a disposable synthetic desktop keyring entry:
 cargo test --test keyring --locked -- --ignored
 ```

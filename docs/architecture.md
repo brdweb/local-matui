@@ -59,6 +59,28 @@ cache: a stream begin or stale-clock reset can reset accounting independently of
 the output. Test nonzero-to-zero resets before the first buffer as well as after
 clock invalidation on an actual null-output player.
 
+Music Assistant 2.10.2 pins aiosendspin 9.1.1. Its player buffer tracker accounts
+encoded bytes and permits a 30-second duration horizon. Matui advertises 2 MiB
+of encoded capacity, so a two-second/2 MiB decoded limit is incompatible: 48 kHz
+stereo PCM16 can legitimately fill almost 11 seconds and expands to i32 samples.
+The decoded queue therefore permits 32 MiB, 4096 chunks and a 35-second scheduling
+horizon (30 seconds plus timing margin). This covers the largest advertised
+96 kHz stereo format. Per-chunk size/duration and overlap checks remain bounded;
+the protocol/worker handoffs retain their separate limits. These are software
+buffer bounds, not a claim of measured device latency or global memory bounds.
+
+The local playback regression reproduced rejection at PCM chunk 76 with a
+500 ms initial lead, before the advertised encoded capacity was reached. Tests
+cover a full PCM buffer, the compressed-audio duration horizon, memory/count
+bounds and deadline reordering. A synchronized real CPAL null-output test feeds
+the full PCM buffer without failure; a separate default-output fixture opens a
+silent stream without sending audio frames. Worker shutdown preserves fixed,
+sanitized failure details instead of overwriting them with "Audio worker stopped".
+
+Sources: the versioned server's
+`music_assistant/providers/sendspin/manifest.json` and the official aiosendspin
+9.1.1 distribution's `server/audio.py` and `server/roles/player/v1.py`.
+
 ## Engineering safeguards
 
 - Treat successful command submission separately from confirmed player state.
