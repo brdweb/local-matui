@@ -10,6 +10,7 @@ import re
 import shutil
 import subprocess
 import tarfile
+import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -22,12 +23,14 @@ def command(*args):
 
 def stage():
     binary = ROOT / 'target/release/matui'
-    assert command(str(binary), '--version').strip() == 'matui 0.1.0'
+    version = tomllib.loads((ROOT / 'Cargo.toml').read_text())['package']['version']
+    assert re.fullmatch(r'\d+\.\d+\.\d+(?:-beta\.\d+)?', version), version
+    pkgver = version.replace('-', '')
+    package = f'matui-{pkgver}-1-x86_64.pkg.tar.zst'
+    assert command(str(binary), '--version').strip() == f'matui {version}'
     assert 'Advanced Micro Devices X86-64' in command('readelf', '-h', str(binary))
     versions = re.findall(r'GLIBC_(\d+)\.(\d+)', command('readelf', '--version-info', str(binary)))
     glibc = '.'.join(map(str, max(tuple(map(int, v)) for v in versions)))
-    # Update the checked-in installation requirements if the build floor changes.
-    assert glibc == '2.39', f'Update INSTALL.txt for glibc {glibc}'
     metadata = json.loads(command('cargo', 'metadata', '--offline', '--locked',
                                   '--format-version', '1', '--filter-platform',
                                   'x86_64-unknown-linux-gnu'))
@@ -64,14 +67,18 @@ def stage():
     with tarfile.open(STAGE / 'THIRD-PARTY-NOTICES.tar.gz', 'w:gz') as archive:
         archive.add(notices, arcname='third-party')
     for source, name in [(binary, 'matui'), (ROOT / 'README.md', 'README.md'),
-                         (ROOT / 'packaging/arch/INSTALL.txt', 'INSTALL.txt'),
+                         (ROOT / 'packaging/matui.desktop', 'matui.desktop'),
                          (ROOT / 'packaging/arch/DEVELOPMENT-STATUS', 'DEVELOPMENT-STATUS')]:
         shutil.copyfile(source, STAGE / name)
+    install = (ROOT / 'packaging/arch/INSTALL.txt').read_text()
+    (STAGE / 'INSTALL.txt').write_text(install.replace('@VERSION@', version).replace('@PACKAGE@', package).replace('@GLIBC@', glibc))
+    (STAGE / 'PACKAGE-NAME').write_text(package + '\n')
+    (STAGE / 'VERSION').write_text(version + '\n')
     (STAGE / 'matui').chmod(0o755)
-    sources = ['matui', 'README.md', 'INSTALL.txt', 'THIRD-PARTY-NOTICES.tar.gz', 'DEVELOPMENT-STATUS']
+    sources = ['matui', 'matui.desktop', 'README.md', 'INSTALL.txt', 'THIRD-PARTY-NOTICES.tar.gz', 'DEVELOPMENT-STATUS']
     sums = ' '.join("'" + hashlib.sha256((STAGE / name).read_bytes()).hexdigest() + "'" for name in sources)
     template = (ROOT / 'packaging/arch/PKGBUILD.in').read_text()
-    (STAGE / 'PKGBUILD').write_text(template.replace('@GLIBC@', glibc).replace('@SHA256SUMS@', sums))
+    (STAGE / 'PKGBUILD').write_text(template.replace('@GLIBC@', glibc).replace('@PKGVER@', pkgver).replace('@SHA256SUMS@', sums))
     for name in ['terminal_smoke.py', 'connected_smoke.py']:
         shutil.copyfile(ROOT / 'tests' / name, STAGE / name)
     print(f'Staged {len(inventory)} dependency notice sets; glibc >= {glibc}; {STAGE}')

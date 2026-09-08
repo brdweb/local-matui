@@ -11,6 +11,7 @@ import termios
 import time
 import pyte
 import signal
+from pathlib import Path
 
 master, slave = pty.openpty()
 fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 110, 0, 0))
@@ -47,7 +48,31 @@ try:
     os.write(master, b"\r")
     until(b"Demo search")
     if len(sys.argv) > 2 and sys.argv[2] == "sigterm":
-        proc.send_signal(signal.SIGTERM)
+        if app_id := os.environ.get("MATUI_TEST_FLATPAK_APP"):
+            # flatpak run is a launcher; signal the actual sandboxed app.
+            rows = subprocess.check_output(
+                ["flatpak", "ps", "--columns=application,child-pid"], text=True
+            ).splitlines()
+            pids = [int(row.split()[1]) for row in rows
+                    if len(row.split()) == 2 and row.split()[0] == app_id]
+            # child-pid may be the sandbox's init wrapper. Find the app below it.
+            pending = list(pids)
+            apps = []
+            while pending:
+                pid = pending.pop()
+                try:
+                    comm = Path(f"/proc/{pid}/comm").read_text().strip()
+                    args = Path(f"/proc/{pid}/cmdline").read_bytes()
+                    if comm == "matui" and b"--demo" in args:
+                        apps.append(pid)
+                    pending.extend(map(int, Path(f"/proc/{pid}/task/{pid}/children").read_text().split()))
+                except FileNotFoundError:
+                    pass
+            assert len(apps) == 1, f"Expected one running Flatpak demo, found {apps}"
+            pids = apps
+            os.kill(pids[0], signal.SIGTERM)
+        else:
+            proc.send_signal(signal.SIGTERM)
     else:
         os.write(master, b"q")
     assert proc.wait(timeout=5) == 0

@@ -4,6 +4,21 @@ A Linux terminal controller and local speaker for Music Assistant. Built with
 Rust + Ratatui and embedded **sendspin-rs 0.3.7**; no companion player process.
 Matui follows the current Omarchy theme, including changes while it is open.
 
+Current beta: **[v0.1.0-beta.1](https://github.com/brdweb/matui/releases/tag/v0.1.0-beta.1)**
+(private repository). Download the Flatpak bundle, Arch package or Linux x86-64 archive plus
+SHA256SUMS; verify with `sha256sum --ignore-missing -c SHA256SUMS`. Installation
+instructions and third-party notices are bundled. See [CHANGELOG.md](CHANGELOG.md).
+
+## Flatpak
+
+```sh
+flatpak install --user ./matui-v0.1.0-beta.1-linux-x86_64.flatpak
+flatpak run io.github.brdweb.Matui
+```
+
+See [Flatpak setup and permissions](packaging/flatpak/README.md). It uses a separate
+profile from native Matui; set up your login on first launch.
+
 ## Run on this laptop
 
 ```sh
