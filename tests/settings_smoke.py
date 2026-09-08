@@ -20,6 +20,7 @@ import threading
 import time
 import pyte
 
+prefix = '/prefix/' + 'long-path/' * 40 + 'music-assistant'
 calls = []
 class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, *args): pass
@@ -30,11 +31,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
     def do_GET(self):
-        assert self.path == '/prefix/info'
+        assert self.path == prefix + '/info'
         self.reply({'server_version':'2.10.2', 'schema_version': 40})
     def do_POST(self):
         req = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
-        if self.path == '/prefix/auth/login':
+        if self.path == prefix + '/auth/login':
             calls.append('login')
             assert req['provider_id'] == 'builtin'
             if req['credentials']['password'] != 'fixture-password':
@@ -42,7 +43,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             else:
                 self.reply({'success':True, 'token':'fixture-token'})
             return
-        assert self.path == '/prefix/api'
+        assert self.path == prefix + '/api'
         assert self.headers['Authorization'] == 'Bearer fixture-token'
         calls.append(req['command'])
         if req['command'] == 'auth/me': self.reply({'username':'fixture-user'})
@@ -54,7 +55,7 @@ threading.Thread(target=server.serve_forever, daemon=True).start()
 with tempfile.TemporaryDirectory(prefix='matui-settings-') as tmp:
     tmp = pathlib.Path(tmp)
     config = tmp / 'config.toml'
-    config.write_text(f'server="http://127.0.0.1:{server.server_port}/prefix"\nplayer_id="fixture-id"\nlocal_playback=false\n')
+    config.write_text(f'server="http://127.0.0.1:{server.server_port}{prefix}"\nplayer_id="fixture-id"\nlocal_playback=false\n')
     helper = tmp / 'secret-tool'
     helper.write_text('''#!/usr/bin/python3
 import os,sys,pathlib
@@ -96,10 +97,13 @@ else:
         try:
             if not restart:
                 visible('CONNECTION SETTINGS')
+                assert b'\x1b[?2004h' in output
+                os.write(master,b'\x15')
+                os.write(master,b'\x1b[200~' + f'http://127.0.0.1:{server.server_port}{prefix}\r\n'.encode() + b'\x1b[201~')
                 os.write(master,b'\tfixture-user\twrong-password\t\t\t\t\t\r')
                 visible('Login rejected (HTTP 401)')
                 assert not (tmp/'keyring').exists()
-                os.write(master,b'\t\tfixture-user\tfixture-password\t\t\t\t\t\r')
+                os.write(master,b'\t\tfixture-user\t\x1b[200~fixture-password\r\n\x1b[201~\t\t\t\t\t\r')
             visible('Fixture speaker')
             assert b'fixture-password' not in output
             assert b'fixture-token' not in output
@@ -116,4 +120,4 @@ else:
             os.close(master);os.close(slave)
     assert calls.count('login')==2, 'restart should reuse saved credentials'
 server.shutdown()
-print('Settings PTY passed: failed/successful login, masked secrets, saved login after restart, live palette reload')
+print('Settings PTY passed: failed/successful login, masked secrets, long URL/password paste, saved login after restart, live palette reload')

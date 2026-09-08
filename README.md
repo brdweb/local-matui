@@ -24,7 +24,10 @@ Set the server URL, speaker name and audio output, then select **Test connection
 and save login**. This checks authentication, the server's reported version and
 player-list access before saving. Blank credentials reuse the login for the same
 server. Press Tab/Shift-Tab to move between fields, Ctrl-U to clear a text field,
-and Space to toggle speaker registration or cycle output devices. Esc cancels.
+and Space to toggle speaker registration or cycle output devices. Use your
+terminal’s paste shortcut (Shift+Insert in this laptop’s Foot configuration).
+Pasted text stays in the active field; embedded line breaks do not submit it.
+Esc cancels.
 
 New setup enables **Expose this computer as a speaker** by default. After login,
 Matui registers its persistent Sendspin identity and automatically selects it

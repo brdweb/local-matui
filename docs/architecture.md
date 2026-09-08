@@ -116,3 +116,10 @@ Additional official integration sources inspected:
 The unversioned client/model references supplement the versioned server handlers;
 server tag 2.10.2 defines command compatibility. Fixture success does not establish
 compatibility with an unknown live server version.
+
+Terminal input enables bracketed paste and disables it on normal exit, signals
+and panic cleanup. Paste events insert only into the active text field, excluding
+control characters without turning them into shortcuts or submissions. Oversized
+pastes are rejected atomically so URLs and credentials are not silently truncated.
+PTY tests cover long prefixed URLs, masked password paste, search paste and paste
+mode restoration on normal quit and SIGTERM.

@@ -29,6 +29,21 @@ pub enum Action {
 }
 
 impl App {
+    /// Pasted text never becomes shortcuts, field navigation or submission.
+    pub fn paste(&mut self, text: &str) {
+        if let Some(settings) = &mut self.settings {
+            settings.paste(text);
+        } else if let Some(menu) = &mut self.menu {
+            if let Some(prompt) = &mut menu.prompt {
+                if !append_paste(&mut prompt.value, text, 2048) {
+                    menu.error = "Paste exceeds this field's 2048-byte limit".into();
+                }
+            }
+        } else if self.editing && !append_paste(&mut self.query, text, 256) {
+            self.status = "Paste exceeds the search field's 256-byte limit".into();
+        }
+    }
+
     pub fn key(&mut self, key: crossterm::event::KeyEvent) -> Action {
         use crossterm::event::{KeyCode, KeyEventKind, KeyModifiers};
         if key.kind == KeyEventKind::Release {
@@ -195,6 +210,17 @@ impl App {
             _ => Action::None,
         }
     }
+}
+
+/// Single-line inputs exclude terminal control characters. Reject oversized
+/// pastes atomically rather than silently truncating a URL or credential.
+pub(crate) fn append_paste(value: &mut String, text: &str, limit: usize) -> bool {
+    let text: String = text.chars().filter(|c| !c.is_control()).collect();
+    if text.len() > limit.saturating_sub(value.len()) {
+        return false;
+    }
+    value.push_str(&text);
+    true
 }
 
 #[derive(Clone, Default)]

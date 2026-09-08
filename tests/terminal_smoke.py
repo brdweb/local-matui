@@ -41,13 +41,19 @@ try:
     os.write(master, b"/")
     until(b"Search:")
     # Ratatui emits incremental cell updates, not a contiguous query string.
-    os.write(master, b"quiet night\r")
+    assert b"\x1b[?2004h" in output
+    os.write(master, b"\x1b[200~quiet night\n\x1b[201~")
+    until(b"quiet night")
+    os.write(master, b"\r")
     until(b"Demo search")
     if len(sys.argv) > 2 and sys.argv[2] == "sigterm":
         proc.send_signal(signal.SIGTERM)
     else:
         os.write(master, b"q")
     assert proc.wait(timeout=5) == 0
+    while select.select([master], [], [], 0.1)[0]:
+        output.extend(os.read(master, 65536))
+    assert b"\x1b[?2004l" in output, "paste mode was not disabled"
     assert termios.tcgetattr(slave) == original, "terminal mode was not restored"
     print("PTY smoke passed: render, search text, submit, quit, terminal restoration")
 finally:

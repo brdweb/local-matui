@@ -72,6 +72,37 @@ fn settings_masks_credentials_and_never_dispatches_playback_shortcuts() {
 }
 
 #[test]
+fn paste_stays_in_active_field_and_rejects_oversized_input_without_truncation() {
+    let mut app = App {
+        settings: Some(Settings::new(Config::default())),
+        ..Default::default()
+    };
+    app.settings.as_mut().unwrap().config.server.clear();
+    let url = format!("https://ma.example/{}/", "long-prefix/".repeat(40));
+    app.paste(&format!("{url}\r\n\t"));
+    let settings = app.settings.as_ref().unwrap();
+    assert_eq!(settings.config.server, url);
+    assert_eq!(settings.field, 0);
+    app.settings.as_mut().unwrap().field = 3;
+    app.paste("fixture-secret\r\n");
+    assert_eq!(app.settings.as_ref().unwrap().token, "fixture-secret");
+    app.paste(&"x".repeat(4096));
+    assert_eq!(app.settings.as_ref().unwrap().token, "fixture-secret");
+    app.settings.as_mut().unwrap().busy = true;
+    app.paste("ignored");
+    assert_eq!(app.settings.as_ref().unwrap().token, "fixture-secret");
+    app.settings = None;
+    app.paste("q\n np+-");
+    assert!(!app.editing);
+    assert!(app.query.is_empty());
+    app.editing = true;
+    app.paste("quiet café\r\n");
+    assert_eq!(app.query, "quiet café");
+    app.paste(&"é".repeat(256));
+    assert_eq!(app.query, "quiet café");
+}
+
+#[test]
 fn saving_settings_preserves_identity_and_private_mode() {
     use std::os::unix::fs::PermissionsExt;
     let dir = std::env::temp_dir().join(format!("matui-settings-{}", uuid::Uuid::new_v4()));

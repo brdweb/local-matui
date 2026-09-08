@@ -16,7 +16,12 @@ impl Drop for SignalTask {
 impl Drop for Restore {
     fn drop(&mut self) {
         let _ = terminal::disable_raw_mode();
-        let _ = execute!(io::stdout(), terminal::LeaveAlternateScreen, cursor::Show);
+        let _ = execute!(
+            io::stdout(),
+            event::DisableBracketedPaste,
+            terminal::LeaveAlternateScreen,
+            cursor::Show
+        );
     }
 }
 
@@ -42,13 +47,23 @@ pub fn run(
         let original_hook = std::panic::take_hook();
         std::panic::set_hook(Box::new(move |info| {
             let _ = terminal::disable_raw_mode();
-            let _ = execute!(io::stdout(), terminal::LeaveAlternateScreen, cursor::Show);
+            let _ = execute!(
+                io::stdout(),
+                event::DisableBracketedPaste,
+                terminal::LeaveAlternateScreen,
+                cursor::Show
+            );
             original_hook(info);
         }));
     });
     terminal::enable_raw_mode()?;
     let _restore = Restore;
-    execute!(io::stdout(), terminal::EnterAlternateScreen, cursor::Hide)?;
+    execute!(
+        io::stdout(),
+        terminal::EnterAlternateScreen,
+        event::EnableBracketedPaste,
+        cursor::Hide
+    )?;
     let backend = ratatui::backend::CrosstermBackend::new(io::stdout());
     let mut terminal = ratatui::Terminal::new(backend)?;
     let theme_paths = crate::theme::paths();
@@ -66,15 +81,20 @@ pub fn run(
         }
         terminal.draw(|frame| ui::draw(frame, &mut app))?;
         if event::poll(Duration::from_millis(50))? {
-            if let event::Event::Key(key) = event::read()? {
-                let action = app.key(key);
-                if matches!(action, Action::Quit | Action::OpenSettings) {
-                    outcome = action;
-                    break;
+            let action = match event::read()? {
+                event::Event::Key(key) => app.key(key),
+                event::Event::Paste(text) => {
+                    app.paste(&text);
+                    Action::None
                 }
-                if action != Action::None {
-                    dispatch(&mut app, action);
-                }
+                _ => Action::None,
+            };
+            if matches!(action, Action::Quit | Action::OpenSettings) {
+                outcome = action;
+                break;
+            }
+            if action != Action::None {
+                dispatch(&mut app, action);
             }
         }
     }

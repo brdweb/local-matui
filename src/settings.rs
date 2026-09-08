@@ -25,6 +25,23 @@ pub struct Settings {
     pub devices: Vec<(String, String)>,
 }
 impl Settings {
+    pub fn paste(&mut self, text: &str) {
+        if self.busy {
+            return;
+        }
+        let value = match self.field {
+            0 => &mut self.config.server,
+            1 => &mut self.username,
+            2 => &mut self.password,
+            3 => &mut self.token,
+            4 => &mut self.config.player_name,
+            _ => return,
+        };
+        if !crate::ui::append_paste(value, text, 4096) {
+            self.message = "Paste exceeds this field's 4096-byte limit; nothing inserted".into();
+        }
+    }
+
     pub fn new(config: Config) -> Self {
         Self {
             config,
