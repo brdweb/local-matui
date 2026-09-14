@@ -4,13 +4,13 @@ updates:
     directory: /
     schedule:
       interval: weekly
-    groups:
-      rust-dependencies:
-        patterns: ['*']
     ignore:
       # Music Assistant 2.10.2 requires this exact Sendspin client version.
       - dependency-name: sendspin
         versions: ['>0.3.7']
+      # sendspin 0.3.7 exposes tokio-tungstenite 0.29 WebSocket types.
+      - dependency-name: tokio-tungstenite
+        versions: ['>=0.30.0']
 
   - package-ecosystem: github-actions
     directory: /
