@@ -1,0 +1,21 @@
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      rust-dependencies:
+        patterns: ['*']
+    ignore:
+      # Music Assistant 2.10.2 requires this exact Sendspin client version.
+      - dependency-name: sendspin
+        versions: ['>0.3.7']
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      github-actions:
+        patterns: ['*']
