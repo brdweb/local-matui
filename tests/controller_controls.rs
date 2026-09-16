@@ -54,7 +54,7 @@ async fn player_commands_reach_the_server_once_and_expired_ones_are_dropped() {
             args: serde_json::json!({}),
         })
     };
-    let mut worker = Controller::start(api);
+    let mut worker = Controller::start(api, None);
     worker
         .requests
         .send(Request::new(Some("p".into()), step()))

@@ -43,6 +43,39 @@ WebSocket response envelope. Resolve a selected player's active queue before
 queue commands; volume commands still target the player itself. Submit explicit
 `replace` or `add` options for play-media requests rather than relying on defaults.
 
+## Event stream (2026-09-16)
+
+Commands stay on HTTP; state changes arrive on the `/ws` socket instead of being
+polled for. The socket carries the same command envelope as `/api`. The server
+greets a new connection with its own information before answering anything, so
+the authentication result has to be matched by `message_id` rather than assumed
+to be the first message. The first command must be `auth`; once it succeeds the
+server subscribes the connection itself, so there is no subscribe command to
+send. Events then arrive unprompted as `{"event", "object_id", "data"}`.
+
+Only the event name and `object_id` are trusted for routing. The single payload
+read is `queue_time_updated`, whose `data` is the elapsed seconds itself
+(`player_queues/controller.py` signals `data=queue.elapsed_time`), so the
+position costs no request at all. `queue_updated` and `queue_items_updated` also
+carry a whole queue object, but it is deliberately ignored: the HTTP reads stay
+the only place a player or queue is parsed, so there is one shape to keep
+correct rather than two. Events for a queue that is not on screen are dropped,
+and a burst is coalesced into one read.
+
+Polling is retained as the fallback, at two seconds with no stream and thirty
+with one, which also covers a socket that dies without closing. Authentication
+failures back off rather than reconnecting in a loop and never report the stream
+as online. Stream failures are not surfaced as errors: they carry peer input,
+and polling covers the outage.
+
+Sources: `controllers/webserver/websocket_client.py` and
+`controllers/player_queues/controller.py` at server tag 2.10.2, and the official
+client's `connect()` ordering in `music_assistant_client/client.py`.
+
+Verified against local WebSocket fixtures only. Fixture success does not
+establish live compatibility; the handshake, event names and payload shapes need
+confirming against an actual 2.10.2 server with explicit authorization.
+
 Sendspin 0.3.7's protocol router has unbounded internal receivers and SyncedPlayer
 callbacks use locks. Application-level channel bounds do not fix those upstream
 properties. Split inbound receivers lack ordering IDs, so drain/discard pending
