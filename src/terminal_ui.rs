@@ -75,6 +75,7 @@ pub fn run(
     let mut theme_check = std::time::Instant::now();
     let mut outcome = Action::Quit;
     let mut dirty = true;
+    let start = std::time::Instant::now();
     while !quit.load(std::sync::atomic::Ordering::Acquire) {
         dirty |= tick(&mut app);
         if app.exit {
@@ -90,6 +91,14 @@ pub fn run(
             crate::theme::reload(&mut app.palette, &theme_paths);
             dirty |= app.palette != previous;
             theme_check = std::time::Instant::now();
+        }
+        // A title too wide for its column scrolls, one column per step. The
+        // step comes from here rather than from the clock inside `draw`, so a
+        // still title costs nothing and drawing stays a function of state.
+        let step = start.elapsed().as_millis() as u64 / 140;
+        if step != app.tick {
+            app.tick = step;
+            dirty |= app.scrolling;
         }
         // The visualizer is the only view that animates on its own; it is worth
         // redrawing at about 60 per second while it is open, and no more otherwise.

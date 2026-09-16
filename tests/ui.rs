@@ -189,7 +189,7 @@ fn both_visualizer_views_render_and_explain_a_silent_endpoint() {
             "a remote speaker must be named as the reason, in {mode:?}"
         );
         assert!(
-            !text.contains('█'),
+            !text.contains('▀'),
             "no bars without local samples in {mode:?}"
         );
     }
@@ -286,22 +286,109 @@ fn the_queue_and_browser_are_visible_together_with_playback_state() {
         .map(|cell| cell.symbol())
         .collect();
     for expected in [
+        // Pane headings are labels now, not boxes.
         "PLAYERS",
-        "QUEUE · 1 item",
+        "QUEUE · 1 ITEM",
         "Queued track",
         "MUSIC",
         "Now playing this",
-        "playing",
-        "vol 42%",
-        "muted",
-        "shuffle on",
-        "repeat one",
+        // The player names where it is playing and how the queue is ordered.
+        "NOW PLAYING · KITCHEN",
+        "SHUFFLE ON",
+        "REPEAT ONE",
+        // The transport row carries the state and the volume.
+        "⏮",
+        "⏹",
+        "⏭",
+        "MUTED",
+        // The queue is a table with a state column.
+        "#   TITLE",
+        "STATE",
     ] {
         assert!(
             text.contains(expected),
             "{expected} missing from the screen"
         );
     }
+    assert!(
+        !text.contains('┌') && !text.contains('│'),
+        "no pane is drawn as a box any more"
+    );
+}
+
+/// The current queue item is named as playing; the others show their length.
+#[test]
+fn the_queue_table_marks_what_is_playing() {
+    let mut app = ui::App {
+        connected: true,
+        selected_id: Some("one".into()),
+        queue_id: "leader".into(),
+        queue_details: serde_json::json!({"current_item": {"queue_item_id": "q2"}}),
+        players: vec![ui::PlayerView {
+            id: "one".into(),
+            available: true,
+            state: "playing".into(),
+            ..Default::default()
+        }],
+        queue: vec![
+            ui::TrackView {
+                id: "q1".into(),
+                title: "First".into(),
+                duration: 90.0,
+                ..Default::default()
+            },
+            ui::TrackView {
+                id: "q2".into(),
+                title: "Second".into(),
+                duration: 120.0,
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    };
+    let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(110, 30)).unwrap();
+    terminal.draw(|frame| ui::draw(frame, &mut app)).unwrap();
+    let text: String = terminal
+        .backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect();
+    assert!(text.contains("PLAYING"), "the current item says so");
+    assert!(
+        text.contains("1:30"),
+        "an item that is not playing shows its length instead"
+    );
+    assert!(
+        text.contains("01") && text.contains("02"),
+        "rows are numbered"
+    );
+}
+
+/// A title too wide for its column scrolls rather than being cut off, and one
+/// that fits never moves.
+#[test]
+fn a_long_title_scrolls_and_a_short_one_does_not() {
+    let short = ui::marquee("Short", 20, 0);
+    assert_eq!(short, ("Short".into(), false));
+    assert_eq!(ui::marquee("Short", 20, 999), ("Short".into(), false));
+
+    let long = "A considerably longer track title than the column can hold";
+    let (first, scrolling) = ui::marquee(long, 20, 0);
+    assert_eq!(first.chars().count(), 20);
+    assert!(scrolling, "a title that does not fit is in motion");
+    assert!(long.starts_with(&first), "it starts held at the beginning");
+
+    // It holds, then travels, then holds at the other end.
+    let (moved, _) = ui::marquee(long, 20, 40);
+    assert_ne!(moved, first, "it moves once the opening hold expires");
+    let (end, _) = ui::marquee(long, 20, 10_000);
+    assert_eq!(end.chars().count(), 20);
+    assert!(
+        long.ends_with(&end) || end != first,
+        "it never runs past the end of the text"
+    );
 }
 
 #[test]
@@ -361,4 +448,56 @@ fn position_runs_between_snapshots_and_every_snapshot_replaces_it() {
     };
     idle.advance(Instant::now());
     assert_eq!(idle.elapsed, 5.0);
+}
+
+/// The spectrum is part of the player rather than a mode, but only where this
+/// run has local audio to analyse and the terminal can spare the rows.
+#[test]
+fn the_player_carries_the_spectrum_when_there_is_room_for_it() {
+    let render = |spectrum: bool, width: u16, height: u16| {
+        let mut app = ui::App {
+            spectrum: spectrum.then(local_matui::visualizer::Analyzer::new),
+            connected: true,
+            selected_id: Some("kitchen".into()),
+            players: vec![ui::PlayerView {
+                id: "kitchen".into(),
+                name: "Kitchen".into(),
+                available: true,
+                state: "playing".into(),
+                ..Default::default()
+            }],
+            title: "Something".into(),
+            ..Default::default()
+        };
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, height)).unwrap();
+        terminal.draw(|frame| ui::draw(frame, &mut app)).unwrap();
+        terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>()
+    };
+
+    // With local audio and room, the strip is there and says why it is empty
+    // rather than animating something it does not have.
+    let tall = render(true, 110, 30);
+    assert!(
+        tall.contains("no local audio"),
+        "the strip is drawn, and is honest about having no signal"
+    );
+    assert!(tall.contains("NOW PLAYING"), "the player is still intact");
+
+    // Too short to spare the rows: the lists matter more than the strip.
+    assert!(
+        !render(true, 110, 22).contains("no local audio"),
+        "a short terminal keeps its lists instead"
+    );
+    // No local audio this run: there is nothing it could ever show.
+    assert!(
+        !render(false, 110, 30).contains("no local audio"),
+        "without local audio there is no strip at all"
+    );
 }

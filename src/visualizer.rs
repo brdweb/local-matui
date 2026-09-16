@@ -426,13 +426,17 @@ impl Meter {
     }
 }
 
-const BLOCKS: [&str; 9] = [" ", "▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"];
-/// Eighths of a cell, the vertical resolution one row provides.
-const STEPS: f32 = 8.0;
+/// One lit segment. A half-block leaves the rest of the cell as ground, so a
+/// column reads as stacked segments rather than a solid bar. That costs the
+/// sub-cell precision a smooth ramp had: a column now has as many steps as it
+/// has rows. The display is an indication of level, not an instrument, and the
+/// frequency ruler already says as much.
+const SEGMENT: &str = "▀";
 
-/// Bar width and gap for an area, chosen so bars stay chunky when there is room.
+/// Bar width and gap for an area. One column per bar at every width keeps the
+/// comb fine, which is what makes a row of them read as a spectrum.
 pub fn columns(width: u16) -> (usize, usize, usize) {
-    let (bar, gap) = if width >= 60 { (2, 1) } else { (1, 0) };
+    let (bar, gap) = (1, 1);
     let bars = ((width as usize + gap) / (bar + gap)).max(1);
     (bars, bar, gap)
 }
@@ -482,18 +486,19 @@ pub fn render(
             }
             let level = levels.get(index).copied().unwrap_or(0.0);
             let peak = peaks.get(index).copied().unwrap_or(0.0);
-            let filled = level * height as f32 * STEPS;
-            let step = (filled - from_bottom as f32 * STEPS).clamp(0.0, STEPS) as usize;
+            let lit = (level * height as f32).round() as usize;
             let peak_row = (peak * height as f32).min(height as f32 - 0.001) as usize;
-            let (symbol, style) = if step > 0 {
-                (BLOCKS[step], Style::default().fg(palette.accent))
+            // An unlit segment is drawn rather than left blank: the dim column
+            // it forms is what makes the lit part read as a level.
+            let style = if from_bottom < lit {
+                Style::default().fg(palette.accent)
             } else if peak > 0.0 && peak_row == from_bottom {
-                // The marker floats above the bar it belongs to.
-                ("▄", Style::default().fg(palette.secondary))
+                // The peak lingers as a ghost segment above its own bar.
+                Style::default().fg(palette.secondary)
             } else {
-                (" ", Style::default())
+                Style::default().fg(palette.selection)
             };
-            spans.push(Span::styled(symbol.repeat(bar), style));
+            spans.push(Span::styled(SEGMENT.repeat(bar), style));
         }
         lines.push(Line::from(spans));
     }

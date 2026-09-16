@@ -228,6 +228,24 @@ fn drawn(width: u16, height: u16, meter: &Meter, reason: Option<&str>) -> String
         .collect()
 }
 
+/// Segments drawn in the accent colour, which is what "lit" means here.
+fn lit(width: u16, height: u16, meter: &Meter) -> usize {
+    let palette = local_matui::theme::Palette::default();
+    let mut terminal =
+        ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, height)).unwrap();
+    terminal
+        .draw(|frame| visualizer::render(frame, frame.area(), palette, meter, None))
+        .unwrap();
+    let count = terminal
+        .backend()
+        .buffer()
+        .content
+        .iter()
+        .filter(|cell| cell.fg == palette.accent)
+        .count();
+    count
+}
+
 #[test]
 fn rendering_draws_bars_for_audio_and_an_explanation_without_it() {
     let mut meter = Meter::default();
@@ -236,7 +254,16 @@ fn rendering_draws_bars_for_audio_and_an_explanation_without_it() {
     bands[32] = 255;
     meter.update(Some(bands), bars, Instant::now());
     let picture = drawn(100, 12, &meter, None);
-    assert!(picture.contains('█'), "audio must draw solid bars");
+    assert!(picture.contains('▀'), "audio must draw segments");
+
+    // Lit and unlit segments are the same glyph in different colours, so the
+    // level is only legible if the accent is actually applied to some of them.
+    let accent = lit(100, 12, &meter);
+    assert!(accent > 0, "a driven band must light segments");
+    assert!(
+        accent < 100 * 12,
+        "an undriven band must leave its segments unlit"
+    );
 
     let empty = drawn(100, 12, &meter, Some("no local audio · playing on Kitchen"));
     assert!(
@@ -244,9 +271,10 @@ fn rendering_draws_bars_for_audio_and_an_explanation_without_it() {
         "an empty visualizer must say why"
     );
     assert!(
-        !empty.contains('█'),
+        !empty.contains('▀'),
         "no bars may be drawn without local samples"
     );
+    assert_eq!(lit(100, 12, &Meter::default()), 0, "silence lights nothing");
     // Sizes below the interface minimum must still not panic.
     for (width, height) in [(1, 1), (3, 2), (200, 60), (0, 0)] {
         drawn(width.max(1), height.max(1), &meter, None);

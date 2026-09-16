@@ -220,6 +220,30 @@ Sources: `controllers/music/controller.py`, `controllers/music/media/base.py`,
 `media/podcasts.py` and `media/audiobooks.py` at server tag 2.10.2, and
 `media_items/media_item.py` in music-assistant/models.
 
+## Player-first layout (2026-09-16)
+
+The interface has no boxes. A pane is a dim uppercase label and the space around
+it, which reads quieter than a border and returns two columns and two rows per
+pane to the lists. The spectrum is part of the player rather than a mode, so it
+is present while playing instead of replacing the browser; `v` still takes over
+the whole terminal. The strip costs five rows and appears only when this run has
+local audio to analyse and the terminal is at least 26 rows, because the lists
+matter more than the strip on a short screen. Its empty state is unchanged: a
+flat baseline and the reason, never motion that means nothing.
+
+Bars are lit and unlit half-block segments rather than a smooth eighth-block
+ramp, one column wide at every width. A column therefore has as many steps as it
+has rows, which is coarser than before; the display indicates level and the
+frequency ruler already says it is approximate.
+
+The now-playing title scrolls when it does not fit, holding at each end. The
+step count is advanced by the render loop rather than read from a clock inside
+`draw`, so drawing stays a function of state and a title that fits costs no
+redraws at all. The queue is a table — number, title over artist, and a state
+column naming the playing item or giving the item's length — and the transport
+row shows all four controls with the current state filled, so it reads without
+pressing anything.
+
 ## Engineering safeguards
 
 - Treat successful command submission separately from confirmed player state.
