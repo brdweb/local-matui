@@ -363,3 +363,43 @@ fn a_progress_event_refreshes_at_most_one_listing_at_a_time() {
         "but it does catch up once the throttle expires"
     );
 }
+
+/// A row says what the item belongs to, which is a different question per
+/// media type — and never a provider instance id, which means nothing.
+#[test]
+fn a_row_names_the_show_the_album_or_the_author_but_never_a_provider_id() {
+    let episode = Media::parse(
+        &json!({"name":"Episode 12","item_id":"e1","provider":"audiobookshelf--zdGFJfeu",
+                "media_type":"podcast_episode","uri":"library://podcast_episode/e1",
+                "podcast":{"name":"The Cavan Sullivan Show"}}),
+        "",
+    );
+    assert_eq!(episode.detail, "The Cavan Sullivan Show");
+
+    let track = Media::parse(
+        &json!({"name":"A Song","item_id":"t1","provider":"library","media_type":"track",
+                "uri":"library://track/t1","artists":[{"name":"An Artist"}],
+                "album":{"name":"An Album"}}),
+        "",
+    );
+    assert_eq!(track.detail, "An Artist · An Album");
+
+    // Audiobook authors may be plain strings rather than objects.
+    let book = Media::parse(
+        &json!({"name":"A Book","item_id":"b1","provider":"abs","media_type":"audiobook",
+                "uri":"library://audiobook/b1","authors":["An Author"],
+                "resume_position_ms":9_305_000}),
+        "",
+    );
+    assert_eq!(book.detail, "An Author · resume 2:35:05");
+
+    // With nothing to say, the media type is said readably rather than a
+    // provider id being shown in its place.
+    let bare = Media::parse(
+        &json!({"name":"Something","item_id":"x","provider":"audiobookshelf--zdGFJfeu",
+                "media_type":"podcast_episode","uri":"library://podcast_episode/x"}),
+        "",
+    );
+    assert_eq!(bare.detail, "podcast episode");
+    assert!(!bare.detail.contains("zdGFJfeu"));
+}

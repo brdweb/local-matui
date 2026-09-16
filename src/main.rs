@@ -156,7 +156,7 @@ async fn main() -> Result<()> {
             Err(_) => (None, None),
         };
         let mut controller =
-            local_matui::controller::Controller::start(api, stream, config.album_art);
+            local_matui::controller::Controller::start(api, stream, config.album_art.enabled());
         let requests = controller.requests.clone();
         let refresh = controller.requests.clone();
         let selection = controller.selection.clone();
@@ -172,6 +172,7 @@ async fn main() -> Result<()> {
                 // never routes audio through this machine.
                 spectrum: audio.as_ref().map(|_| spectrum.clone()),
                 spectrum_style: config.spectrum,
+                sixel: local_matui::artwork::use_sixel(config.album_art),
                 local_endpoint: local_id.map(str::to_owned),
                 ..App::default()
             },

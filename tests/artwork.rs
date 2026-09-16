@@ -163,3 +163,68 @@ fn the_player_shows_the_cover_beside_the_track_it_belongs_to() {
     assert_eq!(coloured, 0, "no cover, no colour");
     assert!(without.contains("Something To Play"));
 }
+
+/// Sixel output has to be a well-formed sequence a terminal will accept, and
+/// has to actually encode the image rather than an empty raster.
+#[test]
+fn sixel_output_is_well_formed_and_carries_the_image() {
+    let art = Art::decode(&red_jpeg()).unwrap();
+    let encoded = art.sixel(24, 24);
+
+    assert!(
+        encoded.starts_with("\u{1b}P"),
+        "a device control string opens it"
+    );
+    assert!(
+        encoded.ends_with("\u{1b}\\"),
+        "and a string terminator closes it"
+    );
+    assert!(
+        encoded.contains("\"1;1;24;24"),
+        "the raster size is declared: {}",
+        &encoded[..60.min(encoded.len())]
+    );
+    // The full 6x6x6 cube is defined before any of it is used.
+    assert!(encoded.contains("#0;2;0;0;0"), "black is defined");
+    assert!(encoded.contains("#215;2;100;100;100"), "white is defined");
+
+    // A solid red cover must select red and fill bands with it, not leave the
+    // raster empty. Red in the cube is index 5*36 = 180.
+    assert!(encoded.contains("#180"), "the image's colour is selected");
+    assert!(
+        encoded.contains('~') || encoded.contains('!'),
+        "bands are filled, with or without run-length encoding"
+    );
+    assert_eq!(
+        encoded.matches('-').count(),
+        4,
+        "24 rows is four six-pixel bands"
+    );
+
+    // Nothing outside the sixel alphabet may reach the terminal.
+    let body = encoded
+        .trim_start_matches("\u{1b}P")
+        .trim_end_matches("\u{1b}\\");
+    assert!(
+        body.chars().all(|c| c.is_ascii() && !c.is_control()),
+        "sixel data stays printable ASCII"
+    );
+
+    // Degenerate sizes must not panic or emit a malformed sequence.
+    for (w, h) in [(1u16, 1u16), (7, 3), (200, 100)] {
+        let small = art.sixel(w, h);
+        assert!(small.starts_with("\u{1b}P") && small.ends_with("\u{1b}\\"));
+    }
+}
+
+/// The renderer is chosen from configuration, and only guessed when asked to.
+#[test]
+fn the_cover_renderer_follows_the_setting() {
+    use local_matui::artwork::use_sixel;
+    use local_matui::config::AlbumArt;
+    assert!(use_sixel(AlbumArt::Sixel), "an explicit choice is honoured");
+    assert!(!use_sixel(AlbumArt::Blocks));
+    assert!(!use_sixel(AlbumArt::Off));
+    assert!(AlbumArt::Sixel.enabled() && AlbumArt::Blocks.enabled());
+    assert!(!AlbumArt::Off.enabled());
+}

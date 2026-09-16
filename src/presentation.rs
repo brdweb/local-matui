@@ -128,7 +128,10 @@ pub fn apply(app: &mut App, event: Update) -> Option<crate::ui::Action> {
             }
         },
         Update::Stream(live) => app.live = live,
-        Update::Artwork(art) => app.artwork = art,
+        Update::Artwork(art) => {
+            app.artwork = art;
+            app.artwork_generation = app.artwork_generation.wrapping_add(1);
+        }
         // The server's own clock, for the queue currently on screen.
         Update::Elapsed(queue_id, seconds) if app.queue_id == queue_id => {
             app.elapsed = seconds;

@@ -14,6 +14,29 @@ pub enum Spectrum {
     Blocks,
 }
 
+/// How album art is drawn.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AlbumArt {
+    /// Sixel where the terminal is known to draw it and reports a pixel size,
+    /// half blocks otherwise. This is a guess about the terminal, not a
+    /// negotiation with it, so `sixel` and `blocks` override it.
+    #[default]
+    Auto,
+    /// Real pixels, for a terminal that speaks sixel.
+    Sixel,
+    /// Two pixels per cell, drawn as ordinary styled cells. Works anywhere.
+    Blocks,
+    Off,
+}
+
+impl AlbumArt {
+    /// Whether any cover is wanted at all.
+    pub fn enabled(self) -> bool {
+        self != Self::Off
+    }
+}
+
 /// Non-secret settings. Access tokens are read separately from LOCAL_MATUI_TOKEN.
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
@@ -28,7 +51,7 @@ pub struct Config {
     /// Switch to `blocks` if the terminal font has no braille glyphs.
     pub spectrum: Spectrum,
     /// Show album art, where the terminal and the server can both supply it.
-    pub album_art: bool,
+    pub album_art: AlbumArt,
 }
 
 impl Default for Config {
@@ -41,7 +64,7 @@ impl Default for Config {
             local_playback: false,
             volume: 30,
             spectrum: Spectrum::default(),
-            album_art: true,
+            album_art: AlbumArt::default(),
         }
     }
 }

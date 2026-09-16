@@ -76,6 +76,8 @@ pub fn run(
     let mut outcome = Action::Quit;
     let mut dirty = true;
     let start = std::time::Instant::now();
+    // The cover last written outside the cell grid, by region and generation.
+    let mut drawn_art: Option<(ratatui::layout::Rect, u64)> = None;
     while !quit.load(std::sync::atomic::Ordering::Acquire) {
         dirty |= tick(&mut app);
         if app.exit {
@@ -111,6 +113,24 @@ pub fn run(
             app.animating = false;
             terminal.draw(|frame| ui::draw(frame, &mut app))?;
             dirty = false;
+            // Sixel writes pixels the cell renderer knows nothing about, so it
+            // goes out after the cells are flushed and only when what it drew
+            // has actually gone stale. The region itself is left blank, so a
+            // later diff has nothing to paint back over the image.
+            let stamp = app.artwork_area.map(|area| (area, app.artwork_generation));
+            if stamp != drawn_art {
+                if let (Some((area, _)), Some(art)) = (stamp, app.artwork.as_ref()) {
+                    if let Some((cell_width, cell_height)) = crate::artwork::cell_pixels() {
+                        execute!(io::stdout(), cursor::MoveTo(area.x, area.y))?;
+                        print!(
+                            "{}",
+                            art.sixel(area.width * cell_width, area.height * cell_height)
+                        );
+                        io::Write::flush(&mut io::stdout())?;
+                    }
+                }
+                drawn_art = stamp;
+            }
         }
         let interval = if animating {
             Duration::from_millis(16)
@@ -131,6 +151,9 @@ pub fn run(
                 // A resize invalidates the whole frame, not just what changed.
                 event::Event::Resize(..) => {
                     dirty = true;
+                    // A resize repaints everything, including over any pixels
+                    // written outside the cell grid.
+                    drawn_art = None;
                     Action::None
                 }
                 _ => Action::None,

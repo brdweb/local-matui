@@ -257,13 +257,31 @@ its media item's metadata or as a mapping; all the places it turns up are tried.
 The id goes into a URL path, so it is validated as alphanumeric rather than
 trusted.
 
-Covers are drawn as half blocks: the upper half takes the foreground colour and
+Covers draw as sixel where the terminal will take it and as half blocks
+everywhere else. `album_art` selects between them; `auto` guesses from the
+terminal's own name and whether it reports a pixel cell size, because sixel
+support cannot be read off either and asking the terminal directly means a
+handshake in the middle of the input stream. foot draws sixel; Alacritty has no
+image protocol at all.
+
+Sixel writes pixels the cell renderer knows nothing about, so it is emitted
+after the cells are flushed, into a region the layout claims but leaves blank —
+a blank region gives a later diff nothing to paint back over the image. It is
+re-emitted only when the cover or its region changes, and on a resize, which
+repaints everything. Colours quantize to a fixed 6x6x6 cube: 216 colours is
+enough for a cover and avoids deriving a palette per image.
+
+Half blocks are the fallback: the upper half takes the foreground colour and
 the lower half the background, so a cell carries two pixels and a panel `n`
-columns wide is `n` pixels wide. That is coarse, and deliberate — these are
+columns wide is `n` pixels wide. That is coarse — a panel `n` columns wide is `n` pixels wide — but they are
 ordinary styled cells, so they compose with the diffing renderer, survive a
-resize and cost nothing to redraw. A terminal graphics protocol (foot has sixel;
-Alacritty has none) is sharper but writes bytes the cell renderer does not know
-about and must then fight it for the region on every frame.
+resize and cost nothing to redraw.
+
+A row says what its item belongs to, which is a different question per media
+type: the artists and album for a track, the show for a podcast episode, the
+authors and narrators for an audiobook. With none of those the media type is
+said readably; a provider instance id is never shown, because it means nothing
+to anyone reading it.
 
 The cover is fetched when the playing item changes, not on every queue read, and
 a superseded fetch is cancelled. It needs ten rows of its own: it must not

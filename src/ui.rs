@@ -537,6 +537,14 @@ pub struct App {
     pub scrolling: bool,
     /// The cover for what is playing, when there is one and it is wanted.
     pub artwork: Option<crate::artwork::Art>,
+    /// Bumped whenever the cover changes, so a renderer that writes outside the
+    /// cell grid knows when what it drew is stale.
+    pub artwork_generation: u64,
+    /// Draw covers as sixel rather than half blocks.
+    pub sixel: bool,
+    /// Where the cover was laid out this frame, for a renderer that has to
+    /// write into it after the cells have been flushed.
+    pub artwork_area: Option<Rect>,
     /// How the spectrum is drawn, from configuration.
     pub spectrum_style: crate::config::Spectrum,
     /// Set while drawing when the spectrum is on screen. It is driven by the
@@ -581,6 +589,9 @@ impl Default for App {
             live: false,
             tick: 0,
             artwork: None,
+            artwork_generation: 0,
+            sixel: false,
+            artwork_area: None,
             spectrum_style: crate::config::Spectrum::default(),
             scrolling: false,
             animating: false,
@@ -620,6 +631,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         return;
     }
     app.scrolling = false;
+    app.artwork_area = None;
     // Chrome is two header rows, the player, two for status and two for hints;
     // everything else belongs to the lists. The player carries the spectrum
     // when this run has local audio and the terminal can spare the rows.
@@ -764,10 +776,17 @@ fn draw_now_playing(frame: &mut Frame, app: &mut App, area: Rect, strip: u16) {
             let split =
                 Layout::horizontal([Constraint::Length(columns), Constraint::Min(20)]).spacing(2);
             let parts = split.split(area);
-            frame.render_widget(
-                Paragraph::new(art.half_blocks(parts[0].width, parts[0].height)),
-                parts[0],
-            );
+            if app.sixel {
+                // Sixel is written after the cells are flushed, so the region
+                // is only claimed here: left blank so the cell renderer has
+                // nothing to put back over the image on a later frame.
+                app.artwork_area = Some(parts[0]);
+            } else {
+                frame.render_widget(
+                    Paragraph::new(art.half_blocks(parts[0].width, parts[0].height)),
+                    parts[0],
+                );
+            }
             parts[1]
         }
         None => area,
