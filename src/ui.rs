@@ -529,6 +529,12 @@ pub struct App {
     pub connected: bool,
     /// Whether the server is pushing changes rather than being asked for them.
     pub live: bool,
+    /// Steps of marquee motion, advanced by the render loop rather than read
+    /// from the clock here, so drawing stays a function of state.
+    pub tick: u64,
+    /// Set while drawing when something on screen is mid-scroll, so the loop
+    /// knows this frame is not the final one.
+    pub scrolling: bool,
 }
 
 impl Default for App {
@@ -565,6 +571,8 @@ impl Default for App {
             demo: false,
             connected: false,
             live: false,
+            tick: 0,
+            scrolling: false,
         }
     }
 }
@@ -600,13 +608,16 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         draw_visualizer(frame, app, area);
         return;
     }
-    // Chrome is two header rows, four for now playing, three for status and
-    // two for hints; everything else belongs to the lists.
+    app.scrolling = false;
+    // Chrome is two header rows, the player, two for status and two for hints;
+    // everything else belongs to the lists. The player carries the spectrum
+    // when this run has local audio and the terminal can spare the rows.
+    let strip = strip_rows(app, area.height);
     let rows = Layout::vertical([
         Constraint::Length(2),
-        Constraint::Length(4),
+        Constraint::Length(4 + strip),
         Constraint::Min(3),
-        Constraint::Length(3),
+        Constraint::Length(2),
         Constraint::Length(2),
     ])
     .split(area);
@@ -642,17 +653,19 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         ),
         rows[0],
     );
-    draw_now_playing(frame, app, rows[1]);
+    draw_now_playing(frame, app, rows[1], strip);
 
-    let cols =
-        Layout::horizontal([Constraint::Percentage(35), Constraint::Percentage(65)]).split(rows[2]);
+    let cols = Layout::horizontal([Constraint::Percentage(35), Constraint::Percentage(65)])
+        .spacing(2)
+        .split(rows[2]);
     // Players are few and short; the queue takes the rest of the column so it
     // stays visible while browsing.
-    let listed = (app.players.len() * 2 + 2) as u16;
+    let listed = (app.players.len() * 2 + 1) as u16;
     let side = Layout::vertical([
-        Constraint::Length(listed.clamp(4, (cols[0].height / 2).max(4))),
+        Constraint::Length(listed.clamp(3, (cols[0].height / 2).max(3))),
         Constraint::Min(3),
     ])
+    .spacing(1)
     .split(cols[0]);
     draw_players(frame, app, side[0]);
     draw_queue(frame, app, side[1]);
@@ -669,14 +682,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     } else {
         format!("{}\n{}", app.status, app.audio_status)
     };
-    frame.render_widget(
-        Paragraph::new(message).block(
-            Block::default()
-                .borders(Borders::TOP)
-                .border_style(Style::default().fg(palette.secondary)),
-        ),
-        rows[3],
-    );
+    frame.render_widget(Paragraph::new(message), rows[3]);
     frame.render_widget(
         Paragraph::new(format!("{}\n{}", hints(app), TRANSPORT_HINTS))
             .style(Style::default().fg(palette.secondary)),
@@ -703,98 +709,150 @@ fn hints(app: &App) -> &'static str {
 // in the controls menu.
 const TRANSPORT_HINTS: &str = "Space/p pause · </> track · s stop · +/- vol · m mute · z shuffle · l repeat · v spectrum · ? all keys";
 
-/// Title, artist, transport state and progress, in four rows.
-fn draw_now_playing(frame: &mut Frame, app: &App, area: Rect) {
+/// Rows the spectrum strip takes as part of the player, or none when this run
+/// has no local audio to analyze or the terminal is too short to spare them.
+fn strip_rows(app: &App, height: u16) -> u16 {
+    if app.spectrum.is_some() && height >= 26 {
+        5
+    } else {
+        0
+    }
+}
+
+/// The player: what is on, what it is doing, and what it sounds like.
+fn draw_now_playing(frame: &mut Frame, app: &mut App, area: Rect, strip: u16) {
     let palette = app.palette;
-    let rows = Layout::vertical([
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Length(1),
-    ])
-    .split(area);
-    frame.render_widget(
-        Paragraph::new(format!("  {}", app.title))
-            .style(Style::default().add_modifier(Modifier::BOLD)),
-        rows[0],
-    );
-    frame.render_widget(
-        Paragraph::new(format!("  {}", app.artist)).style(Style::default().fg(palette.secondary)),
-        rows[1],
-    );
-    // The state line answers what the header used to leave to other panes:
-    // whether it is playing, how loud, and how the queue is ordered.
+    let dim = Style::default().fg(palette.secondary);
     let player = app
         .players
         .iter()
         .find(|p| Some(&p.id) == app.selected_id.as_ref());
-    let mut facts: Vec<String> = Vec::new();
-    match player {
-        Some(p) if !p.available => facts.push("unavailable".into()),
-        Some(p) => {
-            facts.push(if p.state.is_empty() {
-                "idle".into()
-            } else {
-                p.state.clone()
-            });
-            if let Some(volume) = p.volume {
-                facts.push(format!("vol {volume}%"));
-            }
-            if p.details["volume_muted"] == true {
-                facts.push("muted".into());
-            }
-        }
-        None => facts.push("no speaker selected".into()),
-    }
+    let rows = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(strip),
+        Constraint::Length(1),
+    ])
+    .split(area);
+
+    // A label row: where it is playing, and how the queue is ordered.
+    let mut order: Vec<String> = Vec::new();
     if !app.queue_id.is_empty() && app.queue_details["is_dynamic"] != true {
-        facts.push(format!(
-            "shuffle {}",
-            if app.queue_details["shuffle_enabled"] == true {
-                "on"
-            } else {
-                "off"
-            }
+        order.push(format!(
+            "SHUFFLE {}",
+            on_off(app.queue_details["shuffle_enabled"] == true)
         ));
-        facts.push(format!(
-            "repeat {}",
+        order.push(
             match app.queue_details["repeat_mode"].as_str() {
-                Some("all") => "all",
-                Some("one") => "one",
-                _ => "off",
+                Some("all") => "REPEAT ALL",
+                Some("one") => "REPEAT ONE",
+                _ => "REPEAT OFF",
             }
-        ));
+            .into(),
+        );
     }
-    let state = Layout::horizontal([Constraint::Min(10), Constraint::Length(16)]).split(rows[2]);
+    let where_playing = match player {
+        Some(p) if !p.available => format!("NOW PLAYING · {} · UNAVAILABLE", p.name.to_uppercase()),
+        Some(p) => format!("NOW PLAYING · {}", p.name.to_uppercase()),
+        None => "NO SPEAKER SELECTED".into(),
+    };
+    let labels = Layout::horizontal([Constraint::Min(10), Constraint::Length(24)]).split(rows[0]);
+    frame.render_widget(Paragraph::new(where_playing).style(dim), labels[0]);
     frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled(
-                format!("  {} ", transport(player.map_or("", |p| p.state.as_str()))),
-                Style::default().fg(palette.accent),
-            ),
-            Span::raw(facts.join(" · ")),
-        ])),
-        state[0],
+        Paragraph::new(order.join(" · "))
+            .style(dim)
+            .alignment(ratatui::layout::Alignment::Right),
+        labels[1],
     );
+
+    // The title carries the most weight on screen, so it scrolls rather than
+    // being cut off.
+    let (title, scrolling) = marquee(&app.title, rows[1].width as usize, app.tick);
+    app.scrolling |= scrolling;
+    frame.render_widget(
+        Paragraph::new(title).style(Style::default().add_modifier(Modifier::BOLD)),
+        rows[1],
+    );
+
+    let second = Layout::horizontal([Constraint::Min(10), Constraint::Length(16)]).split(rows[2]);
+    frame.render_widget(Paragraph::new(app.artist.clone()).style(dim), second[0]);
     frame.render_widget(
         Paragraph::new(format!(
-            "{} / {}  ",
+            "{} / {}",
             duration(app.elapsed),
             duration(app.duration)
         ))
+        .style(dim)
         .alignment(ratatui::layout::Alignment::Right),
-        state[1],
+        second[1],
+    );
+
+    if strip > 0 {
+        let reason = spectrum(app, rows[3].width);
+        crate::visualizer::render(frame, rows[3], palette, &app.visualizer, reason.as_deref());
+    }
+    draw_transport(frame, app, rows[4]);
+}
+
+fn on_off(value: bool) -> &'static str {
+    if value {
+        "ON"
+    } else {
+        "OFF"
+    }
+}
+
+/// Transport controls, the position within the item, and the volume. All four
+/// controls are always shown; the one matching the current state is filled, so
+/// the row reads as state rather than only as buttons.
+fn draw_transport(frame: &mut Frame, app: &App, area: Rect) {
+    let palette = app.palette;
+    let player = app
+        .players
+        .iter()
+        .find(|p| Some(&p.id) == app.selected_id.as_ref());
+    let state = player.map_or("", |p| p.state.as_str());
+    let columns = Layout::horizontal([
+        Constraint::Length(17),
+        Constraint::Min(10),
+        Constraint::Length(12),
+    ])
+    .split(area);
+
+    let dim = Style::default().fg(palette.secondary);
+    let filled = Style::default()
+        .fg(palette.background)
+        .bg(palette.accent)
+        .add_modifier(Modifier::BOLD);
+    // All four controls are always present; the filled one is the state the
+    // player is actually in, so the row reads without having to press anything.
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled("⏮  ", dim),
+            Span::styled(format!(" {} ", transport(state)), filled),
+            Span::styled("  ⏹  ⏭ ", dim),
+        ])),
+        columns[0],
     );
     frame.render_widget(
         Gauge::default()
             .ratio(progress(app))
             .gauge_style(Style::default().fg(palette.accent).bg(palette.selection))
             .label(""),
-        rows[3],
+        columns[1],
     );
+    let volume = match player {
+        Some(p) if p.details["volume_muted"] == true => "  MUTED".into(),
+        Some(p) => p.volume.map_or("  VOL —".into(), |v| format!("  VOL {v}")),
+        None => String::new(),
+    };
+    frame.render_widget(Paragraph::new(volume).style(dim), columns[2]);
 }
 
 fn draw_players(frame: &mut Frame, app: &App, area: Rect) {
     let palette = app.palette;
+    let area = heading(frame, area, palette, "PLAYERS", app.focus == Focus::Players);
     let items: Vec<ListItem> = app
         .players
         .iter()
@@ -823,11 +881,6 @@ fn draw_players(frame: &mut Frame, app: &App, area: Rect) {
     );
     frame.render_stateful_widget(
         List::new(items)
-            .block(panel(
-                palette,
-                " PLAYERS · Enter to select ",
-                app.focus == Focus::Players,
-            ))
             .highlight_style(Style::default().bg(palette.selection).fg(palette.accent))
             .highlight_symbol("› "),
         area,
@@ -835,25 +888,54 @@ fn draw_players(frame: &mut Frame, app: &App, area: Rect) {
     );
 }
 
-/// Track rows shared by the queue and search panes.
-fn track_items<'a>(tracks: &'a [TrackView], palette: Palette, numbered: bool) -> Vec<ListItem<'a>> {
+/// Track rows: a number, the title over its artist, and a right-aligned state
+/// column carrying either what the item is doing or how long it runs.
+fn track_items<'a>(
+    tracks: &'a [TrackView],
+    palette: Palette,
+    numbered: bool,
+    playing: &str,
+    width: u16,
+) -> Vec<ListItem<'a>> {
+    // The cursor takes two columns, the number four, the state column eight.
+    let state_width = 8usize;
+    let title_width =
+        (width as usize).saturating_sub(2 + if numbered { 4 } else { 0 } + state_width);
     tracks
         .iter()
         .enumerate()
         .map(|(index, track)| {
             let position = if numbered {
-                format!("{:>3}  ", index + 1)
+                format!("{:02}  ", index + 1)
             } else {
                 String::new()
             };
+            let state = if !playing.is_empty() && track.id == playing {
+                "PLAYING".into()
+            } else if track.duration > 0.0 {
+                duration(track.duration)
+            } else {
+                String::new()
+            };
+            let title = truncate(&track.title, title_width);
             ListItem::new(vec![
-                Line::from(format!(
-                    "{position}{}  {}",
-                    track.title,
-                    duration(track.duration)
-                )),
+                Line::from(vec![
+                    Span::raw(format!("{position}{title:<title_width$}")),
+                    Span::styled(
+                        format!("{state:>state_width$}"),
+                        Style::default().fg(if state == "PLAYING" {
+                            palette.accent
+                        } else {
+                            palette.secondary
+                        }),
+                    ),
+                ]),
                 Line::styled(
-                    format!("{}{}", " ".repeat(position.len()), track.artist),
+                    format!(
+                        "{}{}",
+                        " ".repeat(position.len()),
+                        truncate(&track.artist, title_width)
+                    ),
                     Style::default().fg(palette.secondary),
                 ),
             ])
@@ -861,24 +943,37 @@ fn track_items<'a>(tracks: &'a [TrackView], palette: Palette, numbered: bool) ->
         .collect()
 }
 
+fn truncate(text: &str, width: usize) -> String {
+    let characters: Vec<char> = text.chars().collect();
+    if characters.len() <= width {
+        return text.to_owned();
+    }
+    characters
+        .into_iter()
+        .take(width.saturating_sub(1))
+        .chain(['…'])
+        .collect()
+}
+
 fn draw_list(
     frame: &mut Frame,
     area: Rect,
-    block: Block,
     items: Vec<ListItem>,
     cursor: usize,
     palette: Palette,
     empty: &str,
 ) {
     if items.is_empty() {
-        frame.render_widget(Paragraph::new(empty).block(block), area);
+        frame.render_widget(
+            Paragraph::new(empty).style(Style::default().fg(palette.secondary)),
+            area,
+        );
         return;
     }
     let mut state =
         ListState::default().with_selected(Some(cursor.min(items.len().saturating_sub(1))));
     frame.render_stateful_widget(
         List::new(items)
-            .block(block)
             .highlight_style(Style::default().bg(palette.selection))
             .highlight_symbol("› "),
         area,
@@ -886,14 +981,31 @@ fn draw_list(
     );
 }
 
+/// Column headings for a track table, so the state column is readable as one.
+fn columns_header(frame: &mut Frame, area: Rect, palette: Palette, numbered: bool) -> Rect {
+    let rows = Layout::vertical([Constraint::Length(1), Constraint::Min(0)]).split(area);
+    let lead = if numbered { "  #   TITLE" } else { "  TITLE" };
+    let width = rows[0].width as usize;
+    let heading = format!("{lead:<0$}{1:>8}", width.saturating_sub(8), "STATE");
+    frame.render_widget(
+        Paragraph::new(heading).style(Style::default().fg(palette.secondary)),
+        rows[0],
+    );
+    rows[1]
+}
+
 fn draw_queue(frame: &mut Frame, app: &App, area: Rect) {
     let palette = app.palette;
-    let title = format!(" QUEUE · {} ", count(app.queue.len(), "item"));
+    let label = format!("QUEUE · {}", count(app.queue.len(), "item").to_uppercase());
+    let area = heading(frame, area, palette, &label, app.focus == Focus::Queue);
+    let playing = app.queue_details["current_item"]["queue_item_id"]
+        .as_str()
+        .unwrap_or_default();
+    let body = columns_header(frame, area, palette, true);
     draw_list(
         frame,
-        area,
-        panel(palette, &title, app.focus == Focus::Queue),
-        track_items(&app.queue, palette, true),
+        body,
+        track_items(&app.queue, palette, true, playing, body.width),
         app.queue_cursor,
         palette,
         "  Queue is empty or not loaded",
@@ -902,12 +1014,21 @@ fn draw_queue(frame: &mut Frame, app: &App, area: Rect) {
 
 fn draw_search(frame: &mut Frame, app: &App, area: Rect) {
     let palette = app.palette;
-    let title = format!(" SEARCH · {} ", count(app.results.len(), "result"));
+    let label = format!(
+        "SEARCH · {}",
+        count(app.results.len(), "result").to_uppercase()
+    );
+    let area = heading(
+        frame,
+        area,
+        palette,
+        &label,
+        app.focus == Focus::Search || app.editing,
+    );
     draw_list(
         frame,
         area,
-        panel(palette, &title, app.focus == Focus::Search || app.editing),
-        track_items(&app.results, palette, false),
+        track_items(&app.results, palette, false, "", area.width),
         app.search_cursor,
         palette,
         "  / search for tracks across providers",
@@ -955,9 +1076,7 @@ fn spectrum(app: &mut App, width: u16) -> Option<String> {
 /// The visualizer replacing the browser/queue pane.
 fn draw_spectrum_panel(frame: &mut Frame, app: &mut App, area: Rect) {
     let palette = app.palette;
-    let block = panel(palette, " SPECTRUM · Local Matui's own output ", true);
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
+    let inner = heading(frame, area, palette, "SPECTRUM · LOCAL OUTPUT", true);
     let rows = Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).split(inner);
     let reason = spectrum(app, rows[0].width);
     crate::visualizer::render(frame, rows[0], palette, &app.visualizer, reason.as_deref());
@@ -1049,15 +1168,47 @@ fn draw_visualizer(frame: &mut Frame, app: &mut App, area: Rect) {
     );
 }
 
-fn panel(palette: Palette, title: &str, active: bool) -> Block<'_> {
-    Block::default()
-        .title(title)
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(if active {
-            palette.accent
-        } else {
-            palette.secondary
-        }))
+/// Draw a pane's heading and return the area left for its content. There are no
+/// boxes anywhere in this interface: a dim label and the space around it do the
+/// separating that borders used to, which is quieter and gives back two columns
+/// and two rows per pane.
+pub(crate) fn heading(
+    frame: &mut Frame,
+    area: Rect,
+    palette: Palette,
+    label: &str,
+    active: bool,
+) -> Rect {
+    let rows = Layout::vertical([Constraint::Length(1), Constraint::Min(0)]).split(area);
+    frame.render_widget(
+        Paragraph::new(Line::styled(
+            label.to_owned(),
+            Style::default().fg(if active {
+                palette.accent
+            } else {
+                palette.secondary
+            }),
+        )),
+        rows[0],
+    );
+    rows[1]
+}
+
+/// Scroll text too wide for its column, holding at each end long enough to read
+/// it. Returns whether it is mid-scroll so the loop keeps drawing.
+pub fn marquee(text: &str, width: usize, step: u64) -> (String, bool) {
+    let characters: Vec<char> = text.chars().collect();
+    if width == 0 || characters.len() <= width {
+        return (text.to_owned(), false);
+    }
+    const HOLD: u64 = 10;
+    let travel = (characters.len() - width) as u64;
+    let phase = step % (travel + HOLD * 2);
+    let offset = phase.saturating_sub(HOLD).min(travel) as usize;
+    (
+        characters[offset..offset + width].iter().collect(),
+        phase < travel + HOLD * 2,
+    )
 }
 
 fn count(n: usize, noun: &str) -> String {

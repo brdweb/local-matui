@@ -9,7 +9,7 @@ use ratatui::{
     layout::Rect,
     style::Style,
     text::Line,
-    widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
+    widgets::{List, ListItem, ListState, Paragraph},
     Frame,
 };
 use serde_json::{json, Value};
@@ -625,14 +625,13 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
         ),
         _ => String::new(),
     };
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .title(format!(" MUSIC · {}{} ", browser.page.title, paging))
-        .border_style(Style::default().fg(if app.focus == Focus::Music {
-            palette.accent
-        } else {
-            palette.secondary
-        }));
+    let area = crate::ui::heading(
+        frame,
+        area,
+        palette,
+        &format!("MUSIC · {}{}", browser.page.title, paging),
+        app.focus == Focus::Music,
+    );
     if browser.loading || !browser.error.is_empty() || browser.page.items.is_empty() {
         let message = if browser.loading {
             "Loading music…"
@@ -641,7 +640,7 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
         } else {
             "No items here. Try another category, browse providers, or / search."
         };
-        frame.render_widget(Paragraph::new(format!("{message}\n\nEnter opens collections · P chooses playback\nBackspace goes back · r retries")).wrap(ratatui::widgets::Wrap {trim:false}).block(block),area);
+        frame.render_widget(Paragraph::new(format!("{message}\n\nEnter opens collections · P chooses playback\nBackspace goes back · r retries")).wrap(ratatui::widgets::Wrap {trim:false}),area);
         return;
     }
     let items = browser.page.items.iter().map(|m| {
@@ -661,7 +660,6 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
     let mut state = ListState::default().with_selected(Some(browser.page.cursor));
     frame.render_stateful_widget(
         List::new(items)
-            .block(block)
             .highlight_symbol("▸ ")
             .highlight_style(Style::default().fg(palette.accent).bg(palette.selection)),
         area,
