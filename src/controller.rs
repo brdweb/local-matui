@@ -12,6 +12,8 @@ pub enum Update {
     Queue(String, Result<Queue, String>),
     /// Playback position for a queue, straight from the event stream.
     Elapsed(String, f64),
+    /// Whether the server is currently telling us about changes itself.
+    Stream(bool),
     Offline(String),
     Search(String, Result<Vec<Track>, String>),
     Browse(
@@ -127,6 +129,7 @@ impl Controller {
                             events = None;
                             interval = tokio::time::interval(POLL);
                             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                            let _ = tx.send(Update::Stream(false)).await;
                             continue;
                         };
                         stale = Stale::default();
@@ -149,10 +152,12 @@ impl Controller {
                                     stale = Stale::all();
                                     interval = tokio::time::interval(POLL_LIVE);
                                     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                                    if tx.send(Update::Stream(true)).await.is_err() { return; }
                                 }
                                 Event::Offline => {
                                     interval = tokio::time::interval(POLL);
                                     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                                    if tx.send(Update::Stream(false)).await.is_err() { return; }
                                 }
                                 Event::Playlog => {}
                             }
