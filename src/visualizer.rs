@@ -339,31 +339,10 @@ pub fn analyze(samples: &[f32], rate: u32) -> Spectrum {
     bands
 }
 
-/// How much of the interface the visualizer occupies. The player carries a
-/// spectrum of its own, so there is no full-screen view: it showed the same
-/// thing with the rest of the interface taken away.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Mode {
-    #[default]
-    Off,
-    /// Replaces the browser/queue pane, leaving the rest of the interface.
-    Panel,
-}
-
-impl Mode {
-    pub fn next(self) -> Self {
-        match self {
-            Self::Off => Self::Panel,
-            Self::Panel => Self::Off,
-        }
-    }
-}
-
 /// Display state: smoothing and peak fall are presentation, kept out of the
 /// analysis so captured bands stay a plain measurement of the decoded window.
 #[derive(Default)]
 pub struct Meter {
-    pub mode: Mode,
     levels: Vec<f32>,
     peaks: Vec<f32>,
     updated: Option<Instant>,

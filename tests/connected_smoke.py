@@ -134,7 +134,7 @@ with tempfile.TemporaryDirectory(prefix="ma-tui-smoke-") as tmp:
         os.write(master,b"\r")
         until(lambda:any(c["command"]=="player_queues/play_media" and c["args"].get("media")=="library://track/1" and c["args"]["option"]=="replace" for c in calls))
         os.write(master,b"?")
-        visible("Controls")
+        visible("CONTROLS")
         os.write(master,b"jj\r")
         until(lambda:any(c["command"]=="players/cmd/stop" for c in calls))
         os.write(master,b"\x1bOS")  # F4 focuses the queue; Esc now cancels or steps back.

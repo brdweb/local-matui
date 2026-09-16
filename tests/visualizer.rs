@@ -1,7 +1,7 @@
 //! Spectrum analysis and visualizer presentation. Signals here are generated
 //! in the test, not captured from any device or personal media.
 use ma_tui::config::Spectrum as Style;
-use ma_tui::visualizer::{self, Analyzer, Meter, Mode, Spectrum, BANDS, WINDOW};
+use ma_tui::visualizer::{self, Analyzer, Meter, Spectrum, BANDS, WINDOW};
 use std::time::{Duration, Instant};
 
 const RATE: u32 = 48_000;
@@ -322,19 +322,6 @@ fn the_frequency_ruler_lines_up_with_the_bars_it_labels() {
 }
 
 #[test]
-fn modes_cycle_through_panel_and_full_screen() {
-    assert_eq!(Mode::default(), Mode::Off);
-    assert_eq!(Mode::Off.next(), Mode::Panel);
-    assert_eq!(
-        Mode::Panel.next(),
-        Mode::Off,
-        "the player carries a spectrum of its own, so there is no full-screen view"
-    );
-}
-
-/// Prints both views with a generated signal:
-/// `cargo test --test visualizer -- --ignored --nocapture preview`.
-#[test]
 #[ignore = "prints a picture for inspection rather than asserting"]
 fn preview() {
     let analyzer = Analyzer::new();
@@ -377,21 +364,15 @@ fn preview() {
         status: "Preview".into(),
         ..Default::default()
     };
-    {
-        let mode = Mode::Panel;
-        app.visualizer.mode = mode;
-        let mut terminal =
-            ratatui::Terminal::new(ratatui::backend::TestBackend::new(110, 30)).unwrap();
-        // Two frames: the meter needs one to rise before it is drawn.
-        for _ in 0..2 {
-            terminal
-                .draw(|frame| ma_tui::ui::draw(frame, &mut app))
-                .unwrap();
-        }
-        println!("\n=== {mode:?} ===");
-        for row in terminal.backend().buffer().content.chunks(110) {
-            println!("{}", row.iter().map(|c| c.symbol()).collect::<String>());
-        }
+    let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(110, 30)).unwrap();
+    // Two frames: the meter needs one to rise before it is drawn.
+    for _ in 0..2 {
+        terminal
+            .draw(|frame| ma_tui::ui::draw(frame, &mut app))
+            .unwrap();
+    }
+    for row in terminal.backend().buffer().content.chunks(110) {
+        println!("{}", row.iter().map(|c| c.symbol()).collect::<String>());
     }
 }
 

@@ -237,10 +237,9 @@ headings whether focused or not.
 
 The interface has no boxes. A pane is a dim uppercase label and the space around
 it, which reads quieter than a border and returns two columns and two rows per
-pane to the lists. The spectrum is part of the player rather than a mode, so it
-is present while playing instead of replacing the browser; `v` swaps the
-browser pane for a larger one. There is no full-screen view: it showed the same
-thing with the rest of the interface taken away. The strip costs five rows and appears only when this run has
+pane to the lists. The spectrum is part of the player and nothing else: there is no mode and no
+key for it. Both views it used to have showed the same thing with more of the
+interface taken away. The strip costs five rows and appears only when this run has
 local audio to analyse and the terminal is at least 26 rows, because the lists
 matter more than the strip on a short screen. Its empty state is unchanged: a
 flat baseline and the reason, never motion that means nothing.
@@ -286,11 +285,13 @@ Sixel writes pixels the cell renderer knows nothing about, so it is emitted
 after the cells are flushed, into a region the layout claims but leaves blank —
 a blank region gives a later diff nothing to paint back over the image. It is
 re-emitted only when the cover or its region changes, and on a resize, which
-repaints everything. Those pixels also outlive the cells they sit in: a view
-drawn over the cover, a menu say, leaves behind whatever it did not happen to
-write text into, so the screen is repainted in full whenever the cover appears,
-moves or goes. That is affordable because it happens on those transitions and
-not on the frames between them. Colours quantize to a fixed 6x6x6 cube: 216 colours is
+repaints everything. Those pixels also outlive the cells they sit in, so nothing is drawn over them:
+the controls and playback menus take the browser's column rather than the
+screen, which leaves the player, the speakers and the queue where they are.
+Not covering the cover is worth more than repairing it afterwards, and it also
+means what is playing stays visible while choosing what to play next. The screen
+is still repainted in full when the cover appears, moves or goes, for the cases
+the layout cannot avoid. Colours quantize to a fixed 6x6x6 cube: 216 colours is
 enough for a cover and avoids deriving a palette per image.
 
 Half blocks are the fallback: the upper half takes the foreground colour and
