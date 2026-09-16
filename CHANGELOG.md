@@ -1,18 +1,56 @@
 # Changelog
 
-## Unreleased
+## 0.9.0 — 2026-09-16
 
-- Rename the project to **ma-tui**, displayed as **MA-TUI**. The previous name
-  shared a binary with an existing Matrix TUI also called `matui`, which would
-  have meant a conflict in `$PATH` and no route into the AUR. The command,
-  crate, Arch package, desktop entry and repository are now `ma-tui`, the
-  Flatpak application ID is `io.github.brdweb.MaTui`, settings live in
-  `ma-tui/config.toml` and the token override is `MA_TUI_TOKEN`. Every earlier
-  name is still read where one exists — `local-matui` and `matui` config
+First release under the name **ma-tui**, and the first that is not a beta. It is
+pre-1.0: the scope below is complete and exercised, but the limitations at the
+end of the README are real and unchanged.
+
+### The interface learns about changes instead of asking
+
+- Music Assistant's `/ws` event stream replaces polling. State changes arrive
+  when they happen rather than up to two seconds later, and the playback
+  position comes straight from the server's own clock, costing no request at
+  all. Polling is kept as a fallback — two seconds with no stream, thirty with
+  one — so a socket that dies quietly cannot leave the interface stale. The
+  header says which of the two is in use.
+- The position on screen runs between updates instead of freezing and jumping.
+- The interface redraws only when something changed, rather than twenty times a
+  second regardless, and reading the library no longer delays a transport key.
+
+### Podcasts and audiobooks
+
+- Podcast and audiobook libraries, a podcast's episodes, and the shelves the
+  server maintains: **Continue listening** and **Recently added**.
+- **Unplayed podcasts**, assembled here because the server has no filter for it.
+- Episodes and audiobooks show their resume point or that they are finished, and
+  can be marked played or unplayed. Marking needs no speaker: it is a library
+  edit. Progress set elsewhere — in Audiobookshelf or the web interface —
+  appears without a refresh.
+- A row says what its item belongs to: the show for an episode, the artists and
+  album for a track, the authors for an audiobook.
+
+### The player leads
+
+- The layout is built around the player: what is playing, where, how far in, and
+  what it sounds like. Panes are separated by rules rather than boxes, the queue
+  is a table with a state column, and the focused pane's heading is filled so it
+  is findable at a glance.
+- The spectrum is part of the player rather than a mode, drawn in braille for
+  four times the vertical resolution of block characters. `spectrum = "blocks"`
+  restores the block ramp for a font without braille coverage.
+- Album art, drawn as sixel where the terminal draws it and as colour half
+  blocks everywhere else. `album_art` selects between them, or turns it off.
+
+### Renamed
+
+- The project is **ma-tui**, displayed as **MA-TUI**. The former name shared a
+  binary with an existing Matrix TUI also called `matui`. Every earlier name is
+  still read where one exists — the `local-matui` and `matui` configuration
   directories and keyring entries, and the `LOCAL_MATUI_TOKEN` and `MATUI_TOKEN`
   overrides — so an existing installation keeps working without re-entering
-  credentials. Nothing is copied, moved or deleted, and your saved `player_id`
-  and `player_name` are untouched, so Music Assistant sees the same speaker.
+  credentials. Nothing is copied, moved or deleted, and a saved `player_id` and
+  `player_name` are untouched, so Music Assistant sees the same speaker.
 
 ## 0.1.0-beta.2 — 2026-09-08
 

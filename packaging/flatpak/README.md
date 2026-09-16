@@ -1,16 +1,16 @@
-# Flatpak beta
+# Flatpak bundle
 
-Download `ma-tui-v0.1.0-beta.2-linux-x86_64.flatpak` and `SHA256SUMS` from
-the GitHub beta release, then run:
+Download `ma-tui-v0.9.0-linux-x86_64.flatpak` and `SHA256SUMS` from
+the GitHub release, then run:
 
 ```sh
 sha256sum --ignore-missing -c SHA256SUMS
-flatpak install --user ./ma-tui-v0.1.0-beta.2-linux-x86_64.flatpak
+flatpak install --user ./ma-tui-v0.9.0-linux-x86_64.flatpak
 flatpak run io.github.brdweb.MaTui
 ```
 
 The installer obtains Freedesktop Platform 26.08 from Flathub if needed. This is
-an x86-64 single-file beta bundle, not a Flathub listing or an update repository.
+an x86-64 single-file bundle, not a Flathub listing or an update repository.
 Install a later downloaded bundle with the same command to update. To remove:
 `flatpak uninstall --user io.github.brdweb.MaTui` (keeps settings by default).
 The desktop entry uses your terminal emulator; the command above also works
@@ -44,7 +44,7 @@ headers and `desktop-file-validate`. No flatpak-builder or compiler SDK is neede
 cargo build --release --locked
 python3 packaging/arch/stage.py
 python3 packaging/flatpak/build.py
-flatpak install --user --noninteractive .tools/flatpak-package/ma-tui-v0.1.0-beta.2-linux-x86_64.flatpak
+flatpak install --user --noninteractive .tools/flatpak-package/ma-tui-v0.9.0-linux-x86_64.flatpak
 flatpak run io.github.brdweb.MaTui --version
 flatpak run io.github.brdweb.MaTui --demo --snapshot
 flatpak run io.github.brdweb.MaTui --list-devices
@@ -59,7 +59,7 @@ another instance of this Flatpak during the SIGTERM fixture.
 The builder stages only allowlisted binary, helper, docs and notices, verifies
 its pinned source download, and records binary/helper/runtime identities. It
 wraps the native binary and compiles the helper locally; it does not claim a
-reproducible or signed build. The application branch is `beta`.
+reproducible or signed build. The application branch is `stable`.
 See [release procedure](../../docs/releasing.md) for publication checks.
 
 Official references: [single-file bundles](https://docs.flatpak.org/en/latest/single-file-bundles.html),

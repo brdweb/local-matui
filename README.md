@@ -7,15 +7,20 @@ computer running MA-TUI. Built with Rust + Ratatui and embedded
 
 - Browse library and provider content, search, and choose where and how to play it.
 - Control transport, volume, groups, sources and queues from the terminal.
+- Follow podcasts and audiobooks: continue listening, unplayed episodes, resume
+  points, and marking episodes played.
+- See album art and a spectrum of MA-TUI's own output while it plays.
 - Save connection credentials in the desktop keyring.
 - Follow live Omarchy theme changes, or use terminal colors on other desktops.
 
-MA-TUI is beta software targeting **Music Assistant 2.10.2**. Other server
-versions and audio devices may behave differently; see [Known limitations](#known-limitations).
+MA-TUI targets **Music Assistant 2.10.2**. It is pre-1.0: the features below are
+complete and in daily use, but other server versions and audio devices may
+behave differently, and several areas have been verified against local fixtures
+rather than a range of real hardware. See [Known limitations](#known-limitations).
 
 ## Installation
 
-Current beta: **[v0.1.0-beta.2](https://github.com/brdweb/ma-tui/releases/tag/v0.1.0-beta.2)**
+Current release: **[v0.9.0](https://github.com/brdweb/ma-tui/releases/tag/v0.9.0)**
 Download the Flatpak bundle, Arch package or Linux x86-64 archive and
 `SHA256SUMS` from the release page. In the download directory, verify the files:
 
@@ -29,7 +34,7 @@ file integrity; packages are not signed. See [CHANGELOG.md](CHANGELOG.md) for re
 ### Flatpak
 
 ```sh
-flatpak install --user ./ma-tui-v0.1.0-beta.2-linux-x86_64.flatpak
+flatpak install --user ./ma-tui-v0.9.0-linux-x86_64.flatpak
 flatpak run io.github.brdweb.MaTui
 ```
 
@@ -39,7 +44,7 @@ profile from native MA-TUI; set up your login on first launch.
 ### Arch Linux / Omarchy
 
 ```sh
-sudo pacman -U ./ma-tui-0.1.0beta.2-1-x86_64.pkg.tar.zst
+sudo pacman -U ./ma-tui-0.9.0-1-x86_64.pkg.tar.zst
 ma-tui
 ```
 
@@ -216,12 +221,16 @@ Source builds may include changes not present in the latest release.
 ## Verification and boundaries
 
 Validation against Music Assistant **2.10.2** has covered login, player listing,
-library/provider browsing, local speaker registration and local/remote playback.
-The automated suite uses local HTTP/WebSocket fixtures and checks rendering,
-input handling, queue routing, decoding and reconnect behavior. Additional opt-in
-tests exercise desktop keyring storage and real CPAL output on silent devices.
+library/provider browsing, podcast browsing and progress, the event stream,
+local speaker registration and local/remote playback. The automated suite uses
+local HTTP/WebSocket fixtures and checks rendering, input handling, queue
+routing, decoding and reconnect behavior. Additional opt-in tests exercise
+desktop keyring storage and real CPAL output on silent devices.
+
 These checks do not establish compatibility with every device or server version,
-nor do they measure acoustic latency or multi-room synchronization.
+nor do they measure acoustic latency or multi-room synchronization. The sixel
+encoder is verified against the specification by its tests and by eye in foot;
+it has not been checked against every terminal that claims sixel support.
 
 From a source checkout, run:
 
@@ -248,14 +257,22 @@ for validation evidence and [release checks](docs/releasing.md) for packaging ga
 
 ## Known limitations
 
-The UI polls state every
-two seconds; very large queues cost additional requests. Output-device changes
-restart the connection. Runtime audio volume/mute/delay changes are not persisted
-across application restarts. Upstream Sendspin receivers are unbounded and audio
-callbacks use locks; there is no global real-time/lock-free guarantee.
+State arrives on Music Assistant's event stream, with polling as a fallback when
+that socket is unavailable; very large queues still cost additional requests when
+their contents change. The unplayed-podcast list is assembled client-side because
+the server has no filter for it, so it costs one request per subscribed show.
+Output-device changes restart the connection. Runtime audio volume/mute/delay
+changes are not persisted across application restarts. Upstream Sendspin
+receivers are unbounded and audio callbacks use locks; there is no global
+real-time/lock-free guarantee.
 
-MA-TUI does not administer users, providers, DSP or the MA server. It has no
-album art or desktop media-key integration. Player support varies; server
+Album art needs a terminal that draws sixel to look sharp — foot does, Alacritty
+has no image protocol at all — and falls back to colour half blocks elsewhere,
+which are coarse. A terminal multiplexer will generally not forward either.
+
+MA-TUI does not administer users, providers, DSP or the MA server, and has no
+desktop media-key integration. Audiobooks have no chapter navigation, because
+Music Assistant 2.10.2 has no chapter model. Player support varies; server
 rejections appear as command errors. Prolonged playback, broader hardware and
 codec coverage, live server restart recovery and multi-room synchronization
 need further testing.

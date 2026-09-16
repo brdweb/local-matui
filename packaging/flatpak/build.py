@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Wrap the staged native beta in a Flatpak; no host configuration is copied."""
+"""Wrap the staged native build in a Flatpak; no host configuration is copied."""
 import hashlib
 import json
 import re
@@ -17,6 +17,10 @@ STAGE = ROOT / '.tools/arch-package'
 APP = 'io.github.brdweb.MaTui'
 RUNTIME = 'org.freedesktop.Platform'
 BRANCH = '26.08'
+# The application's own branch, which is not the runtime's. It was `beta` while
+# the releases were; a ref is not upgraded across branches, and nothing was ever
+# published under this application ID, so there is nothing to carry over.
+BRANCH_NAME = 'stable'
 SOURCE_URL = 'https://download.gnome.org/sources/libsecret/0.21/libsecret-0.21.7.tar.xz'
 SOURCE_SHA256 = '6b452e4750590a2b5617adc40026f28d2f4903de15f1250e1d1c40bfd68ed55e'
 FINISH_ARGS = [
@@ -96,7 +100,7 @@ def main():
     docs.mkdir(parents=True)
     shutil.copy2(ROOT / 'packaging/flatpak/README.md', docs / 'README.md')
     metadata = {
-        'version': version, 'app_id': APP, 'branch': 'beta',
+        'version': version, 'app_id': APP, 'branch': BRANCH_NAME,
         'runtime': f'{RUNTIME}/x86_64/{BRANCH}',
         'runtime_commit': run('flatpak', 'info', '--show-commit', f'{RUNTIME}//{BRANCH}'),
         'binary_sha256': sha(files / 'bin/ma-tui'),
@@ -108,12 +112,12 @@ def main():
     (docs / 'BUILDINFO.json').write_text(json.dumps(metadata, indent=2) + '\n')
     run('flatpak', 'build-finish', *FINISH_ARGS, str(build))
     assert run('flatpak', 'build', str(build), '/app/bin/ma-tui', '--version') == f'ma-tui {version}'
-    run('flatpak', 'build-export', str(WORK / 'repo'), str(build), 'beta')
+    run('flatpak', 'build-export', str(WORK / 'repo'), str(build), BRANCH_NAME)
     bundle = WORK / f'ma-tui-v{version}-linux-x86_64.flatpak'
     if bundle.exists():
         bundle.unlink()
     run('flatpak', 'build-bundle', '--runtime-repo=https://flathub.org/repo/flathub.flatpakrepo',
-        str(WORK / 'repo'), str(bundle), APP, 'beta')
+        str(WORK / 'repo'), str(bundle), APP, BRANCH_NAME)
     metadata['bundle_sha256'] = sha(bundle)
     (WORK / 'BUILDINFO.json').write_text(json.dumps(metadata, indent=2) + '\n')
     print(bundle)

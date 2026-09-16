@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify an installed beta; uses only synthetic credentials and local fixtures."""
+"""Verify an installed bundle; uses only synthetic credentials and local fixtures."""
 import hashlib
 import json
 import os
