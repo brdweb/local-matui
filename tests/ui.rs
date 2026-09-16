@@ -120,48 +120,8 @@ fn renders_disconnected_and_small_terminal_without_panicking() {
     }
 }
 
-/// The visualizer key only opens a view that can show something real.
 #[test]
-fn the_visualizer_opens_only_with_local_audio_and_closes_with_esc() {
-    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-    use ma_tui::visualizer::Mode;
-    let key = |c| KeyEvent::new(c, KeyModifiers::NONE);
-
-    let mut remote = ui::App::default();
-    assert_eq!(remote.key(key(KeyCode::Char('v'))), ui::Action::None);
-    assert_eq!(
-        remote.visualizer.mode,
-        Mode::Off,
-        "without MA-TUI's own speaker there is nothing to visualize"
-    );
-    assert!(remote.status.contains("local audio"));
-
-    let mut app = ui::App {
-        spectrum: Some(ma_tui::visualizer::Analyzer::new()),
-        ..Default::default()
-    };
-    app.key(key(KeyCode::Char('v')));
-    assert_eq!(app.visualizer.mode, Mode::Panel);
-    app.key(key(KeyCode::Char('v')));
-    assert_eq!(
-        app.visualizer.mode,
-        Mode::Off,
-        "v toggles the pane; the player's own spectrum is always there"
-    );
-    app.key(key(KeyCode::Char('v')));
-    // Esc closes the visualizer before it means anything else, and never
-    // doubles as a pane switch.
-    let focus = app.focus;
-    app.key(key(KeyCode::Esc));
-    assert_eq!(app.visualizer.mode, Mode::Off);
-    assert!(app.focus == focus, "Esc must not also switch panes");
-    app.key(key(KeyCode::Esc));
-    assert!(app.focus == focus);
-}
-
-#[test]
-fn both_visualizer_views_render_and_explain_a_silent_endpoint() {
-    use ma_tui::visualizer::Mode;
+fn the_player_spectrum_explains_a_silent_endpoint() {
     let mut app = ui::App {
         spectrum: Some(ma_tui::visualizer::Analyzer::new()),
         connected: true,
@@ -177,28 +137,20 @@ fn both_visualizer_views_render_and_explain_a_silent_endpoint() {
         title: "Something".into(),
         ..Default::default()
     };
-    {
-        let mode = Mode::Panel;
-        app.visualizer.mode = mode;
-        let mut terminal =
-            ratatui::Terminal::new(ratatui::backend::TestBackend::new(110, 30)).unwrap();
-        terminal.draw(|frame| ui::draw(frame, &mut app)).unwrap();
-        let text: String = terminal
-            .backend()
-            .buffer()
-            .content
-            .iter()
-            .map(|cell| cell.symbol())
-            .collect();
-        assert!(
-            text.contains("no local audio · playing on Kitchen"),
-            "a remote speaker must be named as the reason, in {mode:?}"
-        );
-        assert!(
-            !text.contains('▀'),
-            "no bars without local samples in {mode:?}"
-        );
-    }
+    let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(110, 30)).unwrap();
+    terminal.draw(|frame| ui::draw(frame, &mut app)).unwrap();
+    let text: String = terminal
+        .backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect();
+    assert!(
+        text.contains("no local audio · playing on Kitchen"),
+        "a remote speaker must be named as the reason"
+    );
+    assert!(!text.contains('▀'), "no bars without local samples");
 }
 
 /// Shuffle and repeat are one key each, and only where the server reports them.

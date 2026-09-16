@@ -235,15 +235,6 @@ impl App {
                 Action::None
             }
             KeyCode::F(2) => Action::OpenSettings,
-            KeyCode::Char('v') => {
-                if self.spectrum.is_none() {
-                    self.status =
-                        "Visualizer needs MA-TUI's own speaker: enable local audio (F2)".into();
-                } else {
-                    self.visualizer.mode = self.visualizer.mode.next();
-                }
-                Action::None
-            }
             KeyCode::Char('?') | KeyCode::F(1) => {
                 self.menu = Some(crate::controls::Menu::new(self));
                 Action::None
@@ -275,10 +266,6 @@ impl App {
                 if matches!(self.focus, Focus::Music | Focus::Search) {
                     self.content = self.focus;
                 }
-                Action::None
-            }
-            KeyCode::Esc if self.visualizer.mode != crate::visualizer::Mode::Off => {
-                self.visualizer.mode = crate::visualizer::Mode::Off;
                 Action::None
             }
             KeyCode::Esc => {
@@ -604,10 +591,6 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         settings.draw(frame, palette);
         return;
     }
-    if app.menu.is_some() {
-        crate::controls::draw(frame, app);
-        return;
-    }
     let area = frame.area();
     frame.render_widget(
         Block::default().style(
@@ -705,8 +688,8 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     .split(cols[0]);
     draw_players(frame, app, side[0]);
     draw_queue(frame, app, side[1]);
-    if app.visualizer.mode == crate::visualizer::Mode::Panel {
-        draw_spectrum_panel(frame, app, cols[1]);
+    if app.menu.is_some() {
+        crate::controls::draw(frame, app, cols[1]);
     } else if app.content == Focus::Search || app.focus == Focus::Search || app.editing {
         draw_search(frame, app, cols[1]);
     } else {
@@ -728,6 +711,9 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
 
 /// Keys for the focused pane. The transport line below it never changes.
 fn hints(app: &App) -> &'static str {
+    if app.menu.is_some() {
+        return "Enter applies · / filter · Esc returns · the player keeps running";
+    }
     if app.editing {
         return "Enter submits the search · Esc cancels";
     }
@@ -743,7 +729,8 @@ fn hints(app: &App) -> &'static str {
 
 // Kept to 102 columns so it survives a narrow terminal; everything else lives
 // in the controls menu.
-const TRANSPORT_HINTS: &str = "Space/p pause · </> track · s stop · +/- vol · m mute · z shuffle · l repeat · v spectrum · ? all keys";
+const TRANSPORT_HINTS: &str =
+    "Space/p pause · </> track · s stop · +/- vol · m mute · z shuffle · l repeat · ? all keys";
 
 /// Rows the spectrum strip takes as part of the player, or none when this run
 /// has no local audio to analyze or the terminal is too short to spare them.
@@ -1149,35 +1136,6 @@ fn spectrum(app: &mut App, width: u16) -> Option<String> {
         Some(Err(reason)) => Some(reason.into()),
         None => Some("local audio is off · MA-TUI is not a speaker this run".into()),
     }
-}
-
-/// The visualizer replacing the browser/queue pane.
-fn draw_spectrum_panel(frame: &mut Frame, app: &mut App, area: Rect) {
-    let palette = app.palette;
-    let inner = heading(frame, area, palette, "SPECTRUM · LOCAL OUTPUT", true);
-    let rows = Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).split(inner);
-    let reason = spectrum(app, rows[0].width);
-    crate::visualizer::render(
-        frame,
-        rows[0],
-        palette,
-        &app.visualizer,
-        reason.as_deref(),
-        app.spectrum_style,
-    );
-    frame.render_widget(
-        Paragraph::new(ruler(app, rows[1].width, reason.is_some()))
-            .style(Style::default().fg(palette.secondary)),
-        rows[1],
-    );
-}
-
-fn ruler(app: &App, width: u16, empty: bool) -> String {
-    let rate = app.spectrum.as_ref().map_or(0, |a| a.rate());
-    if empty || rate == 0 {
-        return String::new();
-    }
-    crate::visualizer::scale(width, rate, app.spectrum_style)
 }
 
 /// A horizontal rule separating one band of the interface from the next.

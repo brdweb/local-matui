@@ -2,10 +2,10 @@
 use crate::ui::{Action, App};
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
-    layout::{Constraint, Layout},
+    layout::{Constraint, Layout, Rect},
     style::Style,
     text::Line,
-    widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
+    widgets::{List, ListItem, ListState, Paragraph},
     Frame,
 };
 use serde_json::{json, Value};
@@ -718,50 +718,42 @@ pub fn key(app: &mut App, key: KeyEvent) -> Action {
     Action::None
 }
 
-pub fn draw(frame: &mut Frame, app: &App) {
+/// The menu is a pane, not a screen: it takes the browser's column and leaves
+/// the player, the speakers and the queue where they are. That keeps what is
+/// playing visible while choosing, and means nothing is ever drawn over the
+/// cover — pixels written outside the cell grid are not the renderer's to
+/// clear, so not covering them is worth more than repairing them afterwards.
+pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
     let menu = app.menu.as_ref().unwrap();
     let palette = app.palette;
-    frame.render_widget(
-        Block::default().style(
-            Style::default()
-                .fg(palette.foreground)
-                .bg(palette.background),
-        ),
-        frame.area(),
-    );
-    let rows = Layout::vertical([
-        Constraint::Length(3),
-        Constraint::Min(1),
-        Constraint::Length(2),
-    ])
-    .margin(1)
-    .split(frame.area());
     if let Some(prompt) = &menu.prompt {
+        let area = crate::ui::heading(frame, area, palette, &prompt.label.to_uppercase(), true);
         frame.render_widget(
-            Paragraph::new(format!("{}\nEnter applies · Esc cancels", prompt.label)),
-            rows[0],
-        );
-        frame.render_widget(
-            Paragraph::new(format!("{}▏\n\n{}", prompt.value, menu.error))
-                .wrap(ratatui::widgets::Wrap { trim: false })
-                .block(Block::default().borders(Borders::ALL)),
-            rows[1],
+            Paragraph::new(format!(
+                "{}▏\n\n{}\n\nEnter applies · Esc cancels",
+                prompt.value, menu.error
+            ))
+            .wrap(ratatui::widgets::Wrap { trim: false }),
+            area,
         );
         return;
     }
     let visible = menu.visible();
-    let heading = if menu.filtering {
-        format!("Filter: {}▏  [Esc clears · Enter applies]", menu.filter)
+    let label = format!(
+        "{} · {} OF {}",
+        menu.title.to_uppercase(),
+        visible.len(),
+        menu.entries.len()
+    );
+    let area = crate::ui::heading(frame, area, palette, &label, true);
+    let rows = Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).split(area);
+    let hint = if menu.filtering {
+        format!("Filter: {}▏  Esc clears · Enter applies", menu.filter)
     } else {
-        "↑↓/jk choose · / filter · PgUp/PgDn scroll · Enter applies · Esc returns".into()
+        "↑↓ choose · / filter · Enter applies · Esc returns".into()
     };
     frame.render_widget(
-        Paragraph::new(format!(
-            "MA-TUI · {}\n{heading}\n{} of {} shown",
-            menu.title,
-            visible.len(),
-            menu.entries.len()
-        )),
+        Paragraph::new(hint).style(Style::default().fg(palette.secondary)),
         rows[0],
     );
     // Headings are drawn as their own rows; the cursor only ever lands on an
@@ -788,11 +780,9 @@ pub fn draw(frame: &mut Frame, app: &App) {
     let mut state = ListState::default().with_selected(selected);
     frame.render_stateful_widget(
         List::new(items)
-            .block(Block::default().borders(Borders::ALL))
             .highlight_symbol("› ")
             .highlight_style(Style::default().fg(palette.accent).bg(palette.selection)),
         rows[1],
         &mut state,
     );
-    frame.render_widget(Paragraph::new("Queue: Enter plays · Delete removes · Shift-J/K reorders\nPlayer capabilities vary; command errors are shown without retrying."), rows[2]);
 }
