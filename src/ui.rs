@@ -60,7 +60,34 @@ impl App {
             return Action::None;
         }
         self.elapsed = (self.elapsed + delta).clamp(0.0, self.duration);
+        // Keep running from the new position rather than the old snapshot.
+        self.elapsed_at = Some(std::time::Instant::now());
         Action::Seek(self.elapsed)
+    }
+
+    /// Whether the selected speaker reports that it is playing.
+    fn playing(&self) -> bool {
+        self.players.iter().any(|p| {
+            Some(&p.id) == self.selected_id.as_ref() && p.available && p.state == "playing"
+        })
+    }
+
+    /// Carry the displayed position forward between server snapshots, which
+    /// arrive far too rarely to animate a progress bar. Every snapshot replaces
+    /// the value outright, so this is a display estimate and drift cannot
+    /// accumulate across polls.
+    pub fn advance(&mut self, now: std::time::Instant) {
+        let Some(anchor) = self.elapsed_at else {
+            return;
+        };
+        self.elapsed_at = Some(now);
+        if !self.playing() || !self.elapsed.is_finite() {
+            return;
+        }
+        self.elapsed += now.saturating_duration_since(anchor).as_secs_f64();
+        if self.duration.is_finite() && self.duration > 0.0 {
+            self.elapsed = self.elapsed.min(self.duration);
+        }
     }
 
     /// Why the visualizer has no samples, in terms of the selected speaker.
@@ -281,6 +308,7 @@ impl App {
                     self.title = "Loading queue…".into();
                     self.artist.clear();
                     self.elapsed = 0.0;
+                    self.elapsed_at = None;
                     self.duration = 0.0;
                     self.focus = Focus::Music;
                     self.content = Focus::Music;
@@ -460,6 +488,9 @@ pub struct App {
     pub title: String,
     pub artist: String,
     pub elapsed: f64,
+    /// When `elapsed` was last set, so the position can be carried forward
+    /// between snapshots. `None` means there is nothing to carry.
+    pub elapsed_at: Option<std::time::Instant>,
     pub duration: f64,
     pub status: String,
     pub audio_status: String,
@@ -494,6 +525,7 @@ impl Default for App {
             title: "No player selected".into(),
             artist: "Select a player and press Enter".into(),
             elapsed: 0.0,
+            elapsed_at: None,
             duration: 0.0,
             status: "Disconnected".into(),
             audio_status: "Local audio disabled".into(),

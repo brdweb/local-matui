@@ -55,6 +55,10 @@ fn selects_available_player_and_routes_controls_only_when_connected() {
     assert_eq!(app.key(key(KeyCode::Left)), ui::Action::Seek(30.0));
     assert_eq!(app.key(key(KeyCode::Right)), ui::Action::Seek(40.0));
     assert_eq!(app.elapsed, 40.0, "the position on screen follows the seek");
+    assert!(
+        app.elapsed_at.is_some(),
+        "a seek re-anchors the position so it keeps running from there"
+    );
     app.elapsed = 0.0;
     assert_eq!(app.key(key(KeyCode::Left)), ui::Action::Seek(0.0));
     app.focus = ui::Focus::Search;
@@ -298,4 +302,63 @@ fn the_queue_and_browser_are_visible_together_with_playback_state() {
             "{expected} missing from the screen"
         );
     }
+}
+
+#[test]
+fn position_runs_between_snapshots_and_every_snapshot_replaces_it() {
+    use std::time::{Duration, Instant};
+    let start = Instant::now();
+    let mut app = ui::App {
+        connected: true,
+        selected_id: Some("one".into()),
+        players: vec![ui::PlayerView {
+            id: "one".into(),
+            available: true,
+            state: "playing".into(),
+            ..Default::default()
+        }],
+        elapsed: 10.0,
+        elapsed_at: Some(start),
+        duration: 100.0,
+        ..Default::default()
+    };
+    app.advance(start + Duration::from_secs(3));
+    assert_eq!(app.elapsed, 13.0, "a playing position runs with the clock");
+
+    // Pausing freezes the position without banking the paused time.
+    app.players[0].state = "paused".into();
+    app.advance(start + Duration::from_secs(9));
+    assert_eq!(app.elapsed, 13.0, "a paused position holds");
+    app.players[0].state = "playing".into();
+    app.advance(start + Duration::from_secs(10));
+    assert_eq!(
+        app.elapsed, 14.0,
+        "resuming does not replay the paused time"
+    );
+
+    // The estimate never runs past the end of the item.
+    app.advance(start + Duration::from_secs(600));
+    assert_eq!(app.elapsed, 100.0, "the position stops at the duration");
+
+    // A snapshot is authoritative: drift is replaced, never added to.
+    local_matui::presentation::apply(
+        &mut app,
+        local_matui::controller::Update::Queue(
+            "one".into(),
+            Ok(local_matui::api::Queue {
+                elapsed: 42.0,
+                ..Default::default()
+            }),
+        ),
+    );
+    assert_eq!(app.elapsed, 42.0, "the server's position wins");
+
+    // Without an anchor there is nothing to carry forward.
+    let mut idle = ui::App {
+        elapsed: 5.0,
+        duration: 100.0,
+        ..Default::default()
+    };
+    idle.advance(Instant::now());
+    assert_eq!(idle.elapsed, 5.0);
 }

@@ -73,6 +73,7 @@ pub fn apply(app: &mut App, event: Update) {
                     };
                     app.artist = display(queue.current_artist);
                     app.elapsed = queue.elapsed;
+                    app.elapsed_at = Some(std::time::Instant::now());
                     app.duration = queue.duration;
                     app.queue = queue
                         .items
@@ -96,6 +97,7 @@ pub fn apply(app: &mut App, event: Update) {
                     app.title = "Queue unavailable".into();
                     app.artist.clear();
                     app.elapsed = 0.0;
+                    app.elapsed_at = None;
                     app.duration = 0.0;
                     app.status = error;
                 }
