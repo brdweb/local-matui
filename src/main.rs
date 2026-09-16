@@ -155,7 +155,8 @@ async fn main() -> Result<()> {
             Ok((events, stream)) => (Some(events), Some(stream)),
             Err(_) => (None, None),
         };
-        let mut controller = local_matui::controller::Controller::start(api, stream);
+        let mut controller =
+            local_matui::controller::Controller::start(api, stream, config.album_art);
         let requests = controller.requests.clone();
         let refresh = controller.requests.clone();
         let selection = controller.selection.clone();
