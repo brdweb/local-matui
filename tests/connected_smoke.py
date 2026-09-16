@@ -83,12 +83,12 @@ def until(predicate):
 def visible(text):
     until(lambda:text in "\n".join(screen.display))
 
-with tempfile.TemporaryDirectory(prefix="local-matui-smoke-") as tmp:
+with tempfile.TemporaryDirectory(prefix="ma-tui-smoke-") as tmp:
     path=os.path.join(tmp,"config.toml")
     with open(path,"w") as f:
         f.write(f'server = "http://127.0.0.1:{server.server_port}"\nplayer_id = "test-local"\nlocal_playback = true\n')
     proc=subprocess.Popen([sys.argv[1],"--config",path,"--remote-only"],stdin=slave,stdout=slave,stderr=slave,
-        env=dict(os.environ,TERM="xterm-256color",LOCAL_MATUI_TOKEN="local-fixture"))
+        env=dict(os.environ,TERM="xterm-256color",MA_TUI_TOKEN="local-fixture"))
     try:
         visible("Fixture speaker")
         visible("Music library")

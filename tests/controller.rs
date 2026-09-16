@@ -1,4 +1,4 @@
-use local_matui::{
+use ma_tui::{
     api::ApiClient,
     controller::{Controller, Update},
 };
@@ -53,7 +53,7 @@ async fn worker_polls_without_blocking_caller_and_can_cancel_stalled_request() {
 /// A library read that never answers must not hold up transport or polling.
 #[tokio::test]
 async fn a_stalled_browse_does_not_block_the_poll() {
-    use local_matui::{controller::Request, music::Target, ui::Action};
+    use ma_tui::{controller::Request, music::Target, ui::Action};
     use std::time::Duration;
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let client = ApiClient::new(
@@ -127,7 +127,7 @@ async fn a_stalled_browse_does_not_block_the_poll() {
 /// at all, and a queue that is not on screen costs nothing either.
 #[tokio::test]
 async fn events_route_by_queue_and_a_position_needs_no_request() {
-    use local_matui::events::Event;
+    use ma_tui::events::Event;
     use std::sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,

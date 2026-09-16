@@ -1,9 +1,9 @@
 [Desktop Entry]
 Type=Application
-Name=Local Matui
+Name=MA-TUI
 GenericName=Music Assistant Player
 Comment=Control Music Assistant and play music on this computer
-Exec=local-matui
+Exec=ma-tui
 Icon=audio-speakers
 Terminal=true
 Categories=AudioVideo;Audio;Player;

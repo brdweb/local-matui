@@ -1,6 +1,6 @@
-# Local Matui development
+# MA-TUI development
 
-Local Matui is a terminal user interface for Music Assistant. This repository is the
+MA-TUI is a terminal user interface for Music Assistant. This repository is the
 source of truth for the application.
 
 ## Architecture and verification

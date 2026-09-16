@@ -1,9 +1,10 @@
 # Beta releases
 
 Releases require explicit user authorization. The current beta is
-`v0.1.0-beta.2`, the first published as local-matui. `v0.1.0-beta.1` was
+`v0.1.0-beta.2`, published as local-matui before the rename to ma-tui.
+`v0.1.0-beta.1` was
 published under the former name and withdrawn the same day; its tag and assets
-were deleted rather than rewritten. Local Matui is MIT licensed; include the
+were deleted rather than rewritten. MA-TUI is MIT licensed; include the
 root LICENSE in all new packages alongside third-party notices.
 A beta tag must not be labeled as a stable/latest release.
 

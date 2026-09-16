@@ -144,8 +144,11 @@ impl Art {
     pub fn sixel(&self, width: u16, height: u16) -> String {
         let (width, height) = (width.max(1) as usize, height.max(1) as usize);
         let mut out = String::with_capacity(width * height / 2);
-        // Raster attributes: 1:1 pixel aspect, and the size to reserve.
-        out.push_str(&format!("\x1bP0;1;0q\"1;1;{width};{height}"));
+        // P1=7 is a 1:1 pixel aspect: the original spec reads 0 as 2:1, which
+        // stretches the image on a terminal that honours it over the raster
+        // attributes. P2=1 leaves unset pixels alone rather than painting them
+        // as background. The raster attributes then give the size to reserve.
+        out.push_str(&format!("\x1bP7;1;0q\"1;1;{width};{height}"));
         for index in 0..CUBE * CUBE * CUBE {
             let (r, g, b) = (index / (CUBE * CUBE), (index / CUBE) % CUBE, index % CUBE);
             // Sixel colour components are percentages, not bytes.
@@ -225,6 +228,35 @@ fn emit(out: &mut String, symbol: u8, run: usize) {
         for _ in 0..run {
             out.push(symbol);
         }
+    }
+}
+
+/// A test pattern, for checking what a terminal actually does with sixel
+/// without needing a server or a cover: four flat quadrants with a diagonal
+/// through them. Wrong colours, a stretched square or banding are all visible
+/// at a glance.
+pub fn test_pattern(size: usize) -> Art {
+    let mut pixels = Vec::with_capacity(size * size * 3);
+    for y in 0..size {
+        for x in 0..size {
+            let (left, top) = (x < size / 2, y < size / 2);
+            let rgb = if x.abs_diff(y) < size / 16 {
+                [255, 255, 255]
+            } else {
+                match (left, top) {
+                    (true, true) => [220, 40, 40],
+                    (false, true) => [40, 180, 60],
+                    (true, false) => [50, 90, 220],
+                    (false, false) => [230, 190, 40],
+                }
+            };
+            pixels.extend_from_slice(&rgb);
+        }
+    }
+    Art {
+        width: size,
+        height: size,
+        pixels,
     }
 }
 

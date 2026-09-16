@@ -161,7 +161,7 @@ async fn session(url: &url::Url, token: &str, tx: &mpsc::Sender<Event>) -> Resul
     Ok(())
 }
 
-const AUTH_ID: &str = "local-matui-auth";
+const AUTH_ID: &str = "ma-tui-auth";
 
 /// Map one server event onto what this application re-reads. Unknown events are
 /// ignored rather than guessed at.

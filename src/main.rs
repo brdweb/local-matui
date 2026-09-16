@@ -1,6 +1,6 @@
 use anyhow::{bail, Context, Result};
 use clap::Parser;
-use local_matui::{
+use ma_tui::{
     cli::Args,
     ui::{self, App, PlayerView, TrackView},
 };
@@ -39,17 +39,17 @@ fn demo() -> App {
 async fn main() -> Result<()> {
     let args = Args::parse();
     if args.init {
-        let path = local_matui::cli::config_path(args.config)?;
-        local_matui::cli::initialize(&path)?;
+        let path = ma_tui::cli::config_path(args.config)?;
+        ma_tui::cli::initialize(&path)?;
         println!(
-            "Created {}. Run local-matui --setup to configure the server, login and local speaker.",
+            "Created {}. Run ma-tui --setup to configure the server, login and local speaker.",
             path.display()
         );
         return Ok(());
     }
     if args.demo && args.snapshot {
         let mut app = demo();
-        local_matui::theme::reload(&mut app.palette, &local_matui::theme::paths());
+        ma_tui::theme::reload(&mut app.palette, &ma_tui::theme::paths());
         let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(110, 30))?;
         terminal.draw(|f| ui::draw(f, &mut app))?;
         for row in terminal.backend().buffer().content.chunks(110) {
@@ -58,7 +58,7 @@ async fn main() -> Result<()> {
         return Ok(());
     }
     if args.demo {
-        return local_matui::terminal_ui::run(
+        return ma_tui::terminal_ui::run(
             demo(),
             |_| false,
             |app, action| {
@@ -71,10 +71,8 @@ async fn main() -> Result<()> {
                         .collect();
                     app.status = "Demo search complete (fictional offline data)".into();
                 } else if let ui::Action::Browse { generation, target } = action {
-                    app.music.apply(
-                        generation,
-                        Ok((local_matui::music::demo_listing(&target), None)),
-                    );
+                    app.music
+                        .apply(generation, Ok((ma_tui::music::demo_listing(&target), None)));
                 } else {
                     app.status = "Offline demo: no command was sent".into();
                 }
@@ -82,8 +80,65 @@ async fn main() -> Result<()> {
         )
         .map(|_| ());
     }
+    if args.check_art {
+        use ma_tui::artwork;
+        let cells = artwork::cell_pixels();
+        println!(
+            "TERM          {}",
+            std::env::var("TERM").unwrap_or_default()
+        );
+        println!(
+            "TERM_PROGRAM  {}",
+            std::env::var("TERM_PROGRAM").unwrap_or_default()
+        );
+        println!(
+            "cell size     {}",
+            match cells {
+                Some((w, h)) => format!("{w}x{h} pixels"),
+                None => "not reported — sixel is not possible".into(),
+            }
+        );
+        for setting in [
+            ma_tui::config::AlbumArt::Auto,
+            ma_tui::config::AlbumArt::Sixel,
+            ma_tui::config::AlbumArt::Blocks,
+        ] {
+            println!(
+                "album_art = {:<8} draws {}",
+                format!("{setting:?}").to_lowercase(),
+                if artwork::use_sixel(setting) {
+                    "sixel"
+                } else {
+                    "half blocks"
+                }
+            );
+        }
+        let art = artwork::test_pattern(96);
+        println!("\nHalf blocks (should work in any terminal):");
+        for line in art.half_blocks(24, 12) {
+            // Re-emit the styled cells as plain ANSI: no interface is running.
+            let mut out = String::new();
+            for span in line.spans {
+                if let (
+                    Some(ratatui::style::Color::Rgb(r, g, b)),
+                    Some(ratatui::style::Color::Rgb(br, bg, bb)),
+                ) = (span.style.fg, span.style.bg)
+                {
+                    out.push_str(&format!("\x1b[38;2;{r};{g};{b}m\x1b[48;2;{br};{bg};{bb}m▀"));
+                }
+            }
+            println!("{out}\x1b[0m");
+        }
+        if let Some((w, h)) = cells {
+            println!("\nSixel (a square with four quadrants and a white diagonal):");
+            println!("{}", art.sixel(24 * w, 12 * h));
+        }
+        println!("\nIf the sixel square is missing, stretched or striped, set");
+        println!("album_art = \"blocks\" and tell me which of those it was.");
+        return Ok(());
+    }
     if args.list_devices {
-        let devices = local_matui::audio::devices()?;
+        let devices = ma_tui::audio::devices()?;
         if devices.is_empty() {
             println!("No usable audio output devices found");
         }
@@ -95,23 +150,25 @@ async fn main() -> Result<()> {
     if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
         bail!("An interactive terminal is required; use --demo --snapshot for plain output");
     }
-    let path = local_matui::cli::config_path(args.config)?;
+    let path = ma_tui::cli::config_path(args.config)?;
     let mut config = if path.exists() {
-        local_matui::config::Config::parse(
+        ma_tui::config::Config::parse(
             &std::fs::read_to_string(&path).context("Cannot read configuration")?,
         )?
     } else {
-        local_matui::config::Config {
+        ma_tui::config::Config {
             local_playback: true,
             ..Default::default()
         }
     };
-    // MATUI_TOKEN stays readable for setups configured before the rename.
-    let mut token = std::env::var("LOCAL_MATUI_TOKEN")
+    // Overrides used before each rename stay readable, newest first, so an
+    // existing setup keeps working without being reconfigured.
+    let mut token = std::env::var("MA_TUI_TOKEN")
+        .or_else(|_| std::env::var("LOCAL_MATUI_TOKEN"))
         .or_else(|_| std::env::var("MATUI_TOKEN"))
         .ok();
     if token.is_none() && path.exists() {
-        token = local_matui::credentials::load(&config.server, &config.player_id)
+        token = ma_tui::credentials::load(&config.server, &config.player_id)
             .await
             .ok();
     }
@@ -119,7 +176,7 @@ async fn main() -> Result<()> {
     loop {
         if setup {
             if let Some((next_config, next_token)) =
-                local_matui::settings::run(config.clone(), token.clone(), &path)?
+                ma_tui::settings::run(config.clone(), token.clone(), &path)?
             {
                 config = next_config;
                 token = Some(next_token);
@@ -130,12 +187,12 @@ async fn main() -> Result<()> {
         let Some(token_value) = token.as_ref() else {
             return Ok(());
         };
-        let api = local_matui::api::ApiClient::new(&config.server, token_value)?;
+        let api = ma_tui::api::ApiClient::new(&config.server, token_value)?;
         // The visualizer analyzes only what this endpoint plays.
-        let spectrum = local_matui::visualizer::Analyzer::new();
+        let spectrum = ma_tui::visualizer::Analyzer::new();
         let audio = if (args.local || config.local_playback) && !args.remote_only {
-            Some(local_matui::audio::start(
-                local_matui::audio::AudioConfig {
+            Some(ma_tui::audio::start(
+                ma_tui::audio::AudioConfig {
                     server: config.server.clone(),
                     token: token_value.clone(),
                     player_id: config.player_id.clone(),
@@ -150,13 +207,12 @@ async fn main() -> Result<()> {
             None
         };
         // The server says when something changed; polling is the safety net.
-        let (events, stream) = match local_matui::events::Events::start(&config.server, token_value)
-        {
+        let (events, stream) = match ma_tui::events::Events::start(&config.server, token_value) {
             Ok((events, stream)) => (Some(events), Some(stream)),
             Err(_) => (None, None),
         };
         let mut controller =
-            local_matui::controller::Controller::start(api, stream, config.album_art.enabled());
+            ma_tui::controller::Controller::start(api, stream, config.album_art.enabled());
         let requests = controller.requests.clone();
         let refresh = controller.requests.clone();
         let selection = controller.selection.clone();
@@ -166,21 +222,21 @@ async fn main() -> Result<()> {
         } else {
             None
         };
-        let result = local_matui::terminal_ui::run(
+        let result = ma_tui::terminal_ui::run(
             App {
                 // Only real device output produces samples; a remote speaker
                 // never routes audio through this machine.
                 spectrum: audio.as_ref().map(|_| spectrum.clone()),
                 spectrum_style: config.spectrum,
-                sixel: local_matui::artwork::use_sixel(config.album_art),
+                sixel: ma_tui::artwork::use_sixel(config.album_art),
                 local_endpoint: local_id.map(str::to_owned),
                 ..App::default()
             },
             |app| {
                 let mut changed = false;
                 while let Ok(update) = controller.updates.try_recv() {
-                    if let Some(action) = local_matui::presentation::apply(app, update) {
-                        let _ = refresh.try_send(local_matui::controller::Request::new(
+                    if let Some(action) = ma_tui::presentation::apply(app, update) {
+                        let _ = refresh.try_send(ma_tui::controller::Request::new(
                             app.selected_id.clone(),
                             action,
                         ));
@@ -188,7 +244,7 @@ async fn main() -> Result<()> {
                     changed = true;
                 }
                 if let Some(endpoint) = local_id {
-                    if let Some(id) = local_matui::presentation::select_local(app, endpoint) {
+                    if let Some(id) = ma_tui::presentation::select_local(app, endpoint) {
                         let _ = selection.send(Some(id));
                         changed = true;
                     }
@@ -212,7 +268,7 @@ async fn main() -> Result<()> {
                     let searching = matches!(action, ui::Action::Search(_));
                     let browsing = matches!(action, ui::Action::Browse { .. });
                     if requests
-                        .try_send(local_matui::controller::Request::new(
+                        .try_send(ma_tui::controller::Request::new(
                             app.selected_id.clone(),
                             action,
                         ))

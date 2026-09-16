@@ -1,4 +1,4 @@
-use local_matui::{
+use ma_tui::{
     api::ApiClient,
     controller::{Controller, Request, Update},
     ui::Action,

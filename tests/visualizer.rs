@@ -1,7 +1,7 @@
 //! Spectrum analysis and visualizer presentation. Signals here are generated
 //! in the test, not captured from any device or personal media.
-use local_matui::config::Spectrum as Style;
-use local_matui::visualizer::{self, Analyzer, Meter, Mode, Spectrum, BANDS, WINDOW};
+use ma_tui::config::Spectrum as Style;
+use ma_tui::visualizer::{self, Analyzer, Meter, Mode, Spectrum, BANDS, WINDOW};
 use std::time::{Duration, Instant};
 
 const RATE: u32 = 48_000;
@@ -220,7 +220,7 @@ fn drawn_with(
             visualizer::render(
                 frame,
                 frame.area(),
-                local_matui::theme::Palette::default(),
+                ma_tui::theme::Palette::default(),
                 meter,
                 reason,
                 style,
@@ -242,7 +242,7 @@ fn drawn(width: u16, height: u16, meter: &Meter, reason: Option<&str>) -> String
 }
 
 fn lit_with(style: Style, width: u16, height: u16, meter: &Meter) -> usize {
-    let palette = local_matui::theme::Palette::default();
+    let palette = ma_tui::theme::Palette::default();
     let mut terminal =
         ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, height)).unwrap();
     terminal
@@ -354,12 +354,12 @@ fn preview() {
         .collect();
     analyzer.push(&mixed, 2, RATE, now - Duration::from_millis(100));
 
-    let mut app = local_matui::ui::App {
+    let mut app = ma_tui::ui::App {
         spectrum: Some(analyzer),
         connected: true,
         selected_id: Some("local".into()),
         local_endpoint: Some("local".into()),
-        players: vec![local_matui::ui::PlayerView {
+        players: vec![ma_tui::ui::PlayerView {
             id: "local".into(),
             name: "This computer".into(),
             available: true,
@@ -381,7 +381,7 @@ fn preview() {
         // Two frames: the meter needs one to rise before it is drawn.
         for _ in 0..2 {
             terminal
-                .draw(|frame| local_matui::ui::draw(frame, &mut app))
+                .draw(|frame| ma_tui::ui::draw(frame, &mut app))
                 .unwrap();
         }
         println!("\n=== {mode:?} ===");
@@ -395,7 +395,7 @@ fn preview() {
 /// same analyzer the interface reads.
 #[test]
 fn the_analyzer_is_the_sink_the_audio_output_writes_to() {
-    use local_matui::audio::SampleSink;
+    use ma_tui::audio::SampleSink;
     let analyzer = Analyzer::new();
     let sink: &dyn SampleSink = &analyzer;
     let now = Instant::now();

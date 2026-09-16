@@ -2,16 +2,16 @@
 #[tokio::test]
 #[ignore = "requires an unlocked desktop Secret Service and secret-tool"]
 async fn desktop_keyring_round_trip() {
-    let id = format!("local-matui-test-{}", uuid::Uuid::new_v4());
-    let server = "https://local-matui-fixture.invalid";
+    let id = format!("ma-tui-test-{}", uuid::Uuid::new_v4());
+    let server = "https://ma-tui-fixture.invalid";
     let token = uuid::Uuid::new_v4().to_string();
-    let saved = local_matui::credentials::save(server, &id, &token).await;
-    let loaded = local_matui::credentials::load(server, &id).await;
+    let saved = ma_tui::credentials::save(server, &id, &token).await;
+    let loaded = ma_tui::credentials::load(server, &id).await;
     let cleanup = tokio::process::Command::new("secret-tool")
         .args([
             "clear",
             "application",
-            "local-matui",
+            "ma-tui",
             "server",
             server,
             "player",
@@ -29,12 +29,12 @@ async fn desktop_keyring_round_trip() {
 #[tokio::test]
 #[ignore = "requires an unlocked desktop Secret Service and secret-tool"]
 async fn reads_a_login_stored_under_the_former_application_name() {
-    let id = format!("local-matui-test-{}", uuid::Uuid::new_v4());
-    let server = "https://local-matui-fixture.invalid";
+    let id = format!("ma-tui-test-{}", uuid::Uuid::new_v4());
+    let server = "https://ma-tui-fixture.invalid";
     let token = uuid::Uuid::new_v4().to_string();
     let attributes = ["application", "matui", "server", server, "player", &id];
     let mut store = tokio::process::Command::new("secret-tool")
-        .args(["store", "--label=Local Matui rename test"])
+        .args(["store", "--label=MA-TUI rename test"])
         .args(attributes)
         .stdin(std::process::Stdio::piped())
         .spawn()
@@ -45,7 +45,7 @@ async fn reads_a_login_stored_under_the_former_application_name() {
         input.write_all(token.as_bytes()).await.unwrap();
     }
     assert!(store.wait().await.unwrap().success());
-    let loaded = local_matui::credentials::load(server, &id).await;
+    let loaded = ma_tui::credentials::load(server, &id).await;
     let cleanup = tokio::process::Command::new("secret-tool")
         .arg("clear")
         .args(attributes)

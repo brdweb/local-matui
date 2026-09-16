@@ -14,13 +14,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 WORK = ROOT / '.tools/flatpak-package'
 STAGE = ROOT / '.tools/arch-package'
-APP = 'io.github.brdweb.LocalMatui'
+APP = 'io.github.brdweb.MaTui'
 RUNTIME = 'org.freedesktop.Platform'
 BRANCH = '26.08'
 SOURCE_URL = 'https://download.gnome.org/sources/libsecret/0.21/libsecret-0.21.7.tar.xz'
 SOURCE_SHA256 = '6b452e4750590a2b5617adc40026f28d2f4903de15f1250e1d1c40bfd68ed55e'
 FINISH_ARGS = [
-    '--command=local-matui', '--share=network', '--socket=pulseaudio',
+    '--command=ma-tui', '--share=network', '--socket=pulseaudio',
     '--talk-name=org.freedesktop.secrets',
     '--filesystem=~/.local/state/omarchy/current:ro',
 ]
@@ -56,9 +56,9 @@ def check_runtime_compatibility(binary):
 def main():
     version = tomllib.loads((ROOT / 'Cargo.toml').read_text())['package']['version']
     assert (STAGE / 'VERSION').read_text().strip() == version
-    assert sha(STAGE / 'local-matui') == sha(ROOT / 'target/release/local-matui')
+    assert sha(STAGE / 'ma-tui') == sha(ROOT / 'target/release/ma-tui')
     assert sha(STAGE / 'LICENSE') == sha(ROOT / 'LICENSE'), 'Staged license is stale'
-    check_runtime_compatibility(STAGE / 'local-matui')
+    check_runtime_compatibility(STAGE / 'ma-tui')
     WORK.mkdir(parents=True, exist_ok=True)
     build = WORK / 'build'
     if build.exists():
@@ -67,8 +67,8 @@ def main():
     run('flatpak', 'build-init', str(build), APP, RUNTIME, RUNTIME, BRANCH)
     files = build / 'files'
     (files / 'bin').mkdir(parents=True, exist_ok=True)
-    shutil.copy2(STAGE / 'local-matui', files / 'bin/local-matui')
-    notices = files / 'share/licenses/local-matui'
+    shutil.copy2(STAGE / 'ma-tui', files / 'bin/ma-tui')
+    notices = files / 'share/licenses/ma-tui'
     shutil.copytree(STAGE / 'third-party', notices)
     shutil.copy2(STAGE / 'DEVELOPMENT-STATUS', notices / 'DEVELOPMENT-STATUS')
     shutil.copy2(STAGE / 'LICENSE', notices / 'LICENSE')
@@ -92,14 +92,14 @@ def main():
     applications.mkdir(parents=True)
     shutil.copy2(ROOT / 'packaging/flatpak' / f'{APP}.desktop', applications)
     run('desktop-file-validate', str(applications / f'{APP}.desktop'))
-    docs = files / 'share/doc/local-matui'
+    docs = files / 'share/doc/ma-tui'
     docs.mkdir(parents=True)
     shutil.copy2(ROOT / 'packaging/flatpak/README.md', docs / 'README.md')
     metadata = {
         'version': version, 'app_id': APP, 'branch': 'beta',
         'runtime': f'{RUNTIME}/x86_64/{BRANCH}',
         'runtime_commit': run('flatpak', 'info', '--show-commit', f'{RUNTIME}//{BRANCH}'),
-        'binary_sha256': sha(files / 'bin/local-matui'),
+        'binary_sha256': sha(files / 'bin/ma-tui'),
         'secret_tool_sha256': sha(files / 'bin/secret-tool'),
         'libsecret_source_sha256': SOURCE_SHA256,
         'compiler': run('cc', '--version').splitlines()[0],
@@ -107,9 +107,9 @@ def main():
     }
     (docs / 'BUILDINFO.json').write_text(json.dumps(metadata, indent=2) + '\n')
     run('flatpak', 'build-finish', *FINISH_ARGS, str(build))
-    assert run('flatpak', 'build', str(build), '/app/bin/local-matui', '--version') == f'local-matui {version}'
+    assert run('flatpak', 'build', str(build), '/app/bin/ma-tui', '--version') == f'ma-tui {version}'
     run('flatpak', 'build-export', str(WORK / 'repo'), str(build), 'beta')
-    bundle = WORK / f'local-matui-v{version}-linux-x86_64.flatpak'
+    bundle = WORK / f'ma-tui-v{version}-linux-x86_64.flatpak'
     if bundle.exists():
         bundle.unlink()
     run('flatpak', 'build-bundle', '--runtime-repo=https://flathub.org/repo/flathub.flatpakrepo',
