@@ -7,6 +7,47 @@ use tokio::{
     net::TcpListener,
 };
 
+/// A fixture that answers each request from its body, for a read that issues
+/// several and whose shape depends on the replies.
+async fn server_with(
+    reply: impl Fn(&str) -> Value + Send + Sync + 'static,
+) -> (String, tokio::task::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}/prefix", listener.local_addr().unwrap());
+    let task = tokio::spawn(async move {
+        loop {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut bytes = Vec::new();
+            let end = loop {
+                let mut b = [0; 1024];
+                let n = socket.read(&mut b).await.unwrap();
+                assert!(n > 0);
+                bytes.extend_from_slice(&b[..n]);
+                if let Some(i) = bytes.windows(4).position(|w| w == b"\r\n\r\n") {
+                    break i + 4;
+                }
+            };
+            let headers = String::from_utf8_lossy(&bytes[..end]).to_lowercase();
+            let len: usize = headers
+                .lines()
+                .find_map(|l| l.strip_prefix("content-length: "))
+                .unwrap()
+                .parse()
+                .unwrap();
+            while bytes.len() < end + len {
+                let mut b = [0; 1024];
+                let n = socket.read(&mut b).await.unwrap();
+                assert!(n > 0);
+                bytes.extend_from_slice(&b[..n]);
+            }
+            let body = String::from_utf8_lossy(&bytes[end..end + len]).to_string();
+            let answer = reply(&body).to_string();
+            socket.write_all(format!("HTTP/1.1 200 Test\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{answer}", answer.len()).as_bytes()).await.unwrap();
+        }
+    });
+    (url, task)
+}
+
 async fn server(replies: Vec<(u16, String)>) -> (String, tokio::task::JoinHandle<Vec<Value>>) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("http://{}/prefix", listener.local_addr().unwrap());
@@ -598,4 +639,60 @@ async fn players_reads_bare_http_result_not_websocket_envelope() {
     let requests = task.await.unwrap();
     assert_eq!(requests[0]["command"], "players/all");
     assert!(requests[0]["message_id"].is_string());
+}
+
+/// Unplayed episodes are assembled here because MA 2.10.2 has no filter for
+/// them: the shows are listed, then each is asked for its episodes.
+#[tokio::test]
+async fn unplayed_episodes_are_gathered_across_every_show() {
+    use ma_tui::music::Target;
+    let calls = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let seen = calls.clone();
+    let (url, task) = server_with(move |body: &str| {
+        seen.lock().unwrap().push(body.to_owned());
+        if body.contains("podcasts/library_items") {
+            return json!([
+                {"item_id":"s1","provider":"abs","name":"Show One","media_type":"podcast"},
+                {"item_id":"s2","provider":"abs","name":"Show Two","media_type":"podcast"},
+                // A show missing its identity cannot be asked for episodes.
+                {"item_id":"","provider":"abs","name":"Broken","media_type":"podcast"},
+            ]);
+        }
+        if body.contains("\"s1\"") {
+            return json!([
+                {"item_id":"e1","provider":"abs","name":"One first","media_type":"podcast_episode",
+                 "uri":"library://podcast_episode/e1","fully_played":true},
+                {"item_id":"e2","provider":"abs","name":"One second","media_type":"podcast_episode",
+                 "uri":"library://podcast_episode/e2"},
+                {"item_id":"e3","provider":"abs","name":"One third","media_type":"podcast_episode",
+                 "uri":"library://podcast_episode/e3","resume_position_ms":5000},
+            ]);
+        }
+        json!([
+            {"item_id":"e4","provider":"abs","name":"Two only","media_type":"podcast_episode",
+             "uri":"library://podcast_episode/e4","fully_played":false}
+        ])
+    })
+    .await;
+
+    let api = ApiClient::new(&url, "test-secret").unwrap();
+    let (items, next) = api.browse(&Target::UnplayedEpisodes).await.unwrap();
+    assert_eq!(next, None, "the list is not paged");
+
+    let titles: Vec<&str> = items.iter().map(|m| m.title.as_str()).collect();
+    assert_eq!(
+        titles,
+        vec!["One third", "One second", "Two only"],
+        "finished episodes are dropped and each show reads newest first"
+    );
+    // A part-played episode is unfinished, and says where it stopped.
+    assert!(items[0].detail.contains("resume 0:05"));
+
+    let calls = calls.lock().unwrap();
+    assert_eq!(calls.len(), 3, "one listing, then one read per usable show");
+    assert!(
+        !calls.iter().any(|c| c.contains("\"item_id\":\"\"")),
+        "a show with no identity is not asked for"
+    );
+    task.abort();
 }

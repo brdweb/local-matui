@@ -42,10 +42,27 @@ fn navigation_is_read_only_and_back_rejects_late_responses() {
             ..
         }
     ));
+    // The shelves lead, in the order they are most reached for.
     press(&mut app, KeyCode::Backspace);
-    for _ in 0..2 {
-        press(&mut app, KeyCode::Down);
-    }
+    press(&mut app, KeyCode::Down);
+    assert!(matches!(
+        press(&mut app, KeyCode::Enter),
+        Action::Browse {
+            target: Target::UnplayedEpisodes,
+            ..
+        }
+    ));
+    press(&mut app, KeyCode::Backspace);
+    press(&mut app, KeyCode::Down);
+    assert!(matches!(
+        press(&mut app, KeyCode::Enter),
+        Action::Browse {
+            target: Target::RecentlyAdded,
+            ..
+        }
+    ));
+    press(&mut app, KeyCode::Backspace);
+    press(&mut app, KeyCode::Down);
     let action = press(&mut app, KeyCode::Enter);
     assert!(
         matches!(

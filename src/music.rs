@@ -50,6 +50,9 @@ pub enum Target {
     /// they stay current without the interface tracking anything itself.
     InProgress,
     RecentlyAdded,
+    /// Every episode not yet finished, across every subscribed show. This one
+    /// the server does not keep: it has to be assembled here.
+    UnplayedEpisodes,
     Providers {
         path: Option<String>,
     },
@@ -270,6 +273,7 @@ impl Default for Page {
         // What you were in the middle of comes before the whole library.
         let mut items = vec![
             Media::folder("Continue listening", Target::InProgress),
+            Media::folder("Unplayed episodes", Target::UnplayedEpisodes),
             Media::folder("Recently added", Target::RecentlyAdded),
         ];
         for kind in [
@@ -412,10 +416,80 @@ impl Browser {
     }
 }
 
+/// Shows asked for their episodes at once. Assembling this list costs one
+/// request per subscription, so they overlap — but not without bound, because
+/// the server answering them is the one also serving the audio.
+const CONCURRENT_SHOWS: usize = 6;
+/// Most episodes the unplayed list will gather, so a large subscription list
+/// cannot turn into an unbounded read.
+const MAX_UNPLAYED: usize = 300;
+
 impl ApiClient {
+    /// Every unfinished episode across every show, newest first within each.
+    ///
+    /// MA 2.10.2 has no server-side filter for this: `library_items` takes
+    /// `played_only`, which selects the opposite, and there is no unplayed
+    /// equivalent. So the shows are listed and then each is asked for its
+    /// episodes and filtered here. That is one request per subscription, which
+    /// is why it is bounded and overlapped rather than issued in a loop.
+    async fn unplayed_episodes(&self) -> Result<(Vec<Media>, Option<Target>)> {
+        use futures_util::StreamExt;
+        let shows = self
+            .command(
+                "music/podcasts/library_items",
+                json!({"limit":PAGE_SIZE,"offset":0,"order_by":"sort_name"}),
+            )
+            .await?;
+        let shows: Vec<(String, String)> = shows
+            .as_array()
+            .ok_or_else(|| anyhow!("Invalid podcast listing"))?
+            .iter()
+            .filter_map(|show| {
+                let id = show["item_id"].as_str().filter(|id| !id.is_empty())?;
+                let provider = show["provider"].as_str().filter(|p| !p.is_empty())?;
+                Some((id.to_owned(), provider.to_owned()))
+            })
+            .collect();
+
+        let listings = futures_util::stream::iter(shows)
+            .map(|(id, provider)| async move {
+                self.command(
+                    "music/podcasts/podcast_episodes",
+                    json!({"item_id":id,"provider_instance_id_or_domain":provider}),
+                )
+                .await
+                .ok()
+            })
+            .buffered(CONCURRENT_SHOWS)
+            .collect::<Vec<_>>()
+            .await;
+
+        let mut items = Vec::new();
+        for listing in listings.into_iter().flatten() {
+            let mut episodes: Vec<Media> = listing
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|episode| Media::parse(episode, "podcast_episode"))
+                .filter(|episode| !episode.fully_played)
+                .collect();
+            // Within a show the newest episode is the one to reach for, and
+            // position is the only ordering 2.10.2 gives for an episode.
+            episodes.reverse();
+            items.extend(episodes);
+            if items.len() >= MAX_UNPLAYED {
+                items.truncate(MAX_UNPLAYED);
+                break;
+            }
+        }
+        Ok((items, None))
+    }
+
     pub async fn browse(&self, target: &Target) -> Result<(Vec<Media>, Option<Target>)> {
         let (command, args, hint) = match target {
             Target::Home => return Ok((Page::default().items, None)),
+            // Assembled from many reads rather than served by one.
+            Target::UnplayedEpisodes => return self.unplayed_episodes().await,
             Target::Library {
                 kind,
                 offset,

@@ -102,7 +102,8 @@ with tempfile.TemporaryDirectory(prefix="ma-tui-smoke-") as tmp:
         os.write(master,b"\r")
         until(lambda:any(c["command"]=="music/mark_played" for c in calls))
         os.write(master,b"\x7f")  # Back to the music home listing.
-        os.write(master,b"\x1b[B\x1b[B\r")  # Down to Playlists and open it.
+        # Past the three shelves to Playlists, and open it.
+        os.write(master,b"\x1b[B\x1b[B\x1b[B\r")
         visible("Fixture playlist")
         assert not any(c["command"].startswith("player_queues/") for c in calls), "browsing must work before speaker selection"
         os.write(master,b"\x7f\x1b[Z")  # Back to music home, Shift-Tab to Players.

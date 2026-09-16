@@ -260,6 +260,69 @@ pub fn test_pattern(size: usize) -> Art {
     }
 }
 
+/// Ask the terminal itself whether it draws sixel, rather than guessing from
+/// TERM — which does not answer the question: foot draws sixel and is commonly
+/// configured to report `xterm-256color`, and a terminal that reports
+/// `xterm-256color` and cannot draw sixel is just as common.
+///
+/// Primary Device Attributes is the question: the terminal replies with a list
+/// of what it supports, in which 4 is sixel graphics. Every terminal answers
+/// it, so the timeout is insurance rather than the expected path. The reply is
+/// read before the interface starts, so it cannot be mistaken for a keystroke.
+/// The answer is a property of the terminal, so it is asked once.
+pub fn probe_sixel() -> bool {
+    use std::io::{IsTerminal, Read, Write};
+    static ANSWER: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ANSWER.get_or_init(|| {
+        if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
+            return false;
+        }
+        // The reply arrives unbuffered and unechoed only in raw mode.
+        let already_raw = crossterm::terminal::is_raw_mode_enabled().unwrap_or(false);
+        if !already_raw && crossterm::terminal::enable_raw_mode().is_err() {
+            return false;
+        }
+        let reply = (|| {
+            let mut out = std::io::stdout();
+            out.write_all(b"\x1b[c").ok()?;
+            out.flush().ok()?;
+            let (tx, rx) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                let mut reply = Vec::new();
+                let mut byte = [0u8; 1];
+                let mut stdin = std::io::stdin();
+                // The reply ends at `c`; the cap is a guard, not a limit.
+                while reply.len() < 128 {
+                    match stdin.read(&mut byte) {
+                        Ok(1) => {
+                            reply.push(byte[0]);
+                            if byte[0] == b'c' {
+                                break;
+                            }
+                        }
+                        _ => break,
+                    }
+                }
+                let _ = tx.send(reply);
+            });
+            rx.recv_timeout(std::time::Duration::from_millis(400)).ok()
+        })();
+        if !already_raw {
+            let _ = crossterm::terminal::disable_raw_mode();
+        }
+        // A reply looks like ESC [ ? 62 ; 1 ; 4 ; 6 c — the attributes are
+        // between the `?` and the `c`.
+        let Some(reply) = reply else { return false };
+        String::from_utf8_lossy(&reply)
+            .rsplit('?')
+            .next()
+            .unwrap_or_default()
+            .trim_end_matches('c')
+            .split(';')
+            .any(|attribute| attribute.trim() == "4")
+    })
+}
+
 /// The size of one character cell in pixels, which sixel needs and half blocks
 /// do not. A terminal that does not report it cannot be drawn into this way.
 pub fn cell_pixels() -> Option<(u16, u16)> {
@@ -305,19 +368,10 @@ pub fn renderer(setting: crate::config::AlbumArt) -> (bool, &'static str) {
                     "half blocks: this terminal reports no pixel cell size",
                 );
             }
-            let term = std::env::var("TERM").unwrap_or_default();
-            let program = std::env::var("TERM_PROGRAM").unwrap_or_default();
-            let known = term.starts_with("foot")
-                || term.contains("mlterm")
-                || term.contains("contour")
-                || program.eq_ignore_ascii_case("WezTerm");
-            if known {
-                (true, "sixel: this terminal is known to draw it")
+            if probe_sixel() {
+                (true, "sixel: this terminal says it draws sixel")
             } else {
-                (
-                    false,
-                    "half blocks: TERM is not a terminal known to draw sixel",
-                )
+                (false, "half blocks: this terminal does not report sixel")
             }
         }
     }
