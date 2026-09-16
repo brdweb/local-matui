@@ -119,6 +119,17 @@ pub fn run(
             // later diff has nothing to paint back over the image.
             let stamp = app.artwork_area.map(|area| (area, app.artwork_generation));
             if stamp != drawn_art {
+                // Pixels already on screen outlive the cells they sit in: the
+                // renderer only rewrites cells whose contents changed, so a
+                // view drawn over the cover — a menu, say — leaves whatever it
+                // did not happen to write text into. Repainting everything is
+                // the only way to take those pixels back, and it is affordable
+                // because it happens when the cover appears, moves or goes,
+                // not on the frames in between.
+                if drawn_art.is_some() {
+                    terminal.clear()?;
+                    terminal.draw(|frame| ui::draw(frame, &mut app))?;
+                }
                 if let (Some((area, _)), Some(art)) = (stamp, app.artwork.as_ref()) {
                     if let Some((cell_width, cell_height)) = crate::artwork::cell_pixels() {
                         execute!(io::stdout(), cursor::MoveTo(area.x, area.y))?;

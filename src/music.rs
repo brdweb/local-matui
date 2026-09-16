@@ -273,7 +273,7 @@ impl Default for Page {
         // What you were in the middle of comes before the whole library.
         let mut items = vec![
             Media::folder("Continue listening", Target::InProgress),
-            Media::folder("Unplayed episodes", Target::UnplayedEpisodes),
+            Media::folder("Unplayed podcasts", Target::UnplayedEpisodes),
             Media::folder("Recently added", Target::RecentlyAdded),
         ];
         for kind in [

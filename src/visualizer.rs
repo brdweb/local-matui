@@ -339,23 +339,22 @@ pub fn analyze(samples: &[f32], rate: u32) -> Spectrum {
     bands
 }
 
-/// How much of the interface the visualizer occupies.
+/// How much of the interface the visualizer occupies. The player carries a
+/// spectrum of its own, so there is no full-screen view: it showed the same
+/// thing with the rest of the interface taken away.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Mode {
     #[default]
     Off,
     /// Replaces the browser/queue pane, leaving the rest of the interface.
     Panel,
-    /// Takes over the whole terminal.
-    Full,
 }
 
 impl Mode {
     pub fn next(self) -> Self {
         match self {
             Self::Off => Self::Panel,
-            Self::Panel => Self::Full,
-            Self::Full => Self::Off,
+            Self::Panel => Self::Off,
         }
     }
 }
