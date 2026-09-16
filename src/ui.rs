@@ -31,6 +31,21 @@ pub enum Action {
     Play(String),
     Enqueue(String),
     PlayNext(String),
+    /// Mark a library item played or unplayed. Carries the item's identity
+    /// because Music Assistant names the item itself, not a URI. This is a
+    /// library edit, so it needs no speaker.
+    MarkPlayed {
+        item: serde_json::Value,
+        played: bool,
+    },
+}
+
+impl Action {
+    /// Whether this is aimed at a speaker. A library edit is not: it changes
+    /// what the server stores, so it stands on its own.
+    pub fn needs_player(&self) -> bool {
+        !matches!(self, Action::MarkPlayed { .. })
+    }
 }
 
 impl App {
@@ -187,8 +202,18 @@ impl App {
                 if matches!(key.code, KeyCode::Enter | KeyCode::Char('P')) {
                     return crate::music::choose(self, &media);
                 }
+                // The queue shortcuts still need a speaker of their own; the
+                // menu can now open without one, for progress alone.
+                if !self
+                    .players
+                    .iter()
+                    .any(|p| Some(&p.id) == self.selected_id.as_ref() && p.available)
+                {
+                    self.status = "Select an available speaker first".into();
+                    return Action::None;
+                }
                 crate::music::choose(self, &media);
-                if self.menu.take().is_some() {
+                if self.menu.take().is_some() && media.playable && media.available {
                     return if key.code == KeyCode::Char('a') {
                         Action::Enqueue(media.uri)
                     } else {

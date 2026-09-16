@@ -684,16 +684,24 @@ pub fn key(app: &mut App, key: KeyEvent) -> Action {
             if menu.selected().is_none() {
                 return Action::None;
             }
-            let action = if app.connected
-                && menu.player == app.selected_id
-                && app
-                    .players
-                    .iter()
-                    .any(|p| Some(&p.id) == menu.player.as_ref() && p.available)
-            {
-                menu.selected()
-                    .map(|entry| entry.action.clone())
-                    .unwrap_or(Action::None)
+            let chosen = menu
+                .selected()
+                .map(|entry| entry.action.clone())
+                .unwrap_or(Action::None);
+            // A library edit needs the server but no speaker; everything else
+            // has to still be aimed at the player the menu was opened for.
+            let permitted = if chosen.needs_player() {
+                app.connected
+                    && menu.player == app.selected_id
+                    && app
+                        .players
+                        .iter()
+                        .any(|p| Some(&p.id) == menu.player.as_ref() && p.available)
+            } else {
+                app.connected
+            };
+            let action = if permitted {
+                chosen
             } else {
                 app.status = "Player disconnected; reopen controls after reconnecting".into();
                 Action::None

@@ -36,7 +36,8 @@ pub fn matches_endpoint(player: &PlayerView, endpoint: &str) -> bool {
 }
 
 /// Apply network snapshots only to the player/query they were requested for.
-pub fn apply(app: &mut App, event: Update) {
+/// Returns work the update implies, for the caller to submit.
+pub fn apply(app: &mut App, event: Update) -> Option<crate::ui::Action> {
     match event {
         Update::Browse(generation, result) => app.music.apply(generation, result),
         Update::Players(players) => {
@@ -137,6 +138,10 @@ pub fn apply(app: &mut App, event: Update) {
             app.status = format!("Disconnected · data stale · retrying: {error}");
         }
         Update::Notice(text) => app.status = text,
+        Update::Playlog => {
+            return app.music.progress_changed(std::time::Instant::now());
+        }
         _ => {}
     }
+    None
 }
