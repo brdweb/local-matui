@@ -14,6 +14,8 @@ pub enum Update {
     Elapsed(String, f64),
     /// Whether the server is currently telling us about changes itself.
     Stream(bool),
+    /// Listening progress changed somewhere in the library.
+    Playlog,
     Offline(String),
     Search(String, Result<Vec<Track>, String>),
     Browse(
@@ -159,7 +161,12 @@ impl Controller {
                                     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
                                     if tx.send(Update::Stream(false)).await.is_err() { return; }
                                 }
-                                Event::Playlog => {}
+                                // Progress changed somewhere — possibly in
+                                // Audiobookshelf or the web interface. The
+                                // listing decides for itself whether it cares.
+                                Event::Playlog => {
+                                    if tx.send(Update::Playlog).await.is_err() { return; }
+                                }
                             }
                             next = events.as_mut().and_then(|rx| rx.try_recv().ok());
                         }
@@ -250,6 +257,11 @@ impl Controller {
 }
 
 async fn execute(api: &ApiClient, request: Request) -> anyhow::Result<()> {
+    // A library edit is not about a speaker, so it is answered before one is
+    // required.
+    if let Action::MarkPlayed { item, played } = request.action {
+        return api.mark_played(item, played).await;
+    }
     let player = request
         .player
         .ok_or_else(|| anyhow::anyhow!("No player selected"))?;

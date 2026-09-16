@@ -157,6 +157,7 @@ async fn main() -> Result<()> {
         };
         let mut controller = local_matui::controller::Controller::start(api, stream);
         let requests = controller.requests.clone();
+        let refresh = controller.requests.clone();
         let selection = controller.selection.clone();
         let audio_status = audio.as_ref().map(|a| a.status.clone());
         let local_id = if audio.is_some() {
@@ -175,7 +176,12 @@ async fn main() -> Result<()> {
             |app| {
                 let mut changed = false;
                 while let Ok(update) = controller.updates.try_recv() {
-                    local_matui::presentation::apply(app, update);
+                    if let Some(action) = local_matui::presentation::apply(app, update) {
+                        let _ = refresh.try_send(local_matui::controller::Request::new(
+                            app.selected_id.clone(),
+                            action,
+                        ));
+                    }
                     changed = true;
                 }
                 if let Some(endpoint) = local_id {

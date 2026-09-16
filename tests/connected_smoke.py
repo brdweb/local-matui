@@ -33,6 +33,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
             body = [{"queue_item_id":"item1","name":"Fixture song","duration":200}]
         elif cmd == "music/search":
             body = {"tracks":[{"name":"Search fixture","uri":"library://track/1","artists":[{"name":"Fixture artist"}]}]}
+        elif cmd == "music/in_progress_items":
+            assert req["args"] == {"limit":100}
+            body = [{"name":"Fixture episode","item_id":"ep1","provider":"abs","media_type":"podcast_episode",
+                     "uri":"library://podcast_episode/ep1","resume_position_ms":724000}]
+        elif cmd == "music/recently_added_tracks":
+            assert req["args"] == {"limit":100}
+            body = [{"name":"Fixture new track","uri":"library://track/new","media_type":"track"}]
+        elif cmd == "music/mark_played":
+            assert req["args"] == {"media_item":{"item_id":"ep1","provider":"abs","name":"Fixture episode",
+                                                 "media_type":"podcast_episode"},"fully_played":True}
+            body = None
         elif cmd == "music/playlists/library_items":
             assert req["args"] == {"limit":100,"offset":0,"order_by":"sort_name","favorite":None}
             body = [{"name":"Fixture playlist","item_id":"playlist1","provider":"library","media_type":"playlist","uri":"library://playlist/playlist1"}]
@@ -81,7 +92,17 @@ with tempfile.TemporaryDirectory(prefix="local-matui-smoke-") as tmp:
     try:
         visible("Fixture speaker")
         visible("Music library")
+        # Continue listening leads the home listing, and shows a resume point.
         os.write(master,b"b\r")
+        visible("Fixture episode")
+        visible("resume 12:04")
+        # Marking progress needs no speaker; the menu opens on P.
+        os.write(master,b"P")
+        visible("Mark as played")
+        os.write(master,b"\r")
+        until(lambda:any(c["command"]=="music/mark_played" for c in calls))
+        os.write(master,b"\x7f")  # Back to the music home listing.
+        os.write(master,b"\x1b[B\x1b[B\r")  # Down to Playlists and open it.
         visible("Fixture playlist")
         assert not any(c["command"].startswith("player_queues/") for c in calls), "browsing must work before speaker selection"
         os.write(master,b"\x7f\x1b[Z")  # Back to music home, Shift-Tab to Players.

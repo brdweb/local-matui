@@ -40,6 +40,16 @@ pub enum Target {
         id: String,
         provider: String,
     },
+    /// A podcast's episodes. Audiobooks have no equivalent: MA 2.10.2 models
+    /// them as one playable item with a resume point, not a chapter list.
+    Podcast {
+        id: String,
+        provider: String,
+    },
+    /// Started but unfinished, and newly added. The server keeps both lists, so
+    /// they stay current without the interface tracking anything itself.
+    InProgress,
+    RecentlyAdded,
     Providers {
         path: Option<String>,
     },
@@ -52,8 +62,11 @@ pub enum Kind {
     Artists,
     Tracks,
     Radio,
+    Podcasts,
+    Audiobooks,
 }
 impl Kind {
+    /// MA derives the command base from the media type: `music/<type>s/…`.
     fn endpoint(self) -> &'static str {
         match self {
             Self::Playlists => "playlists",
@@ -61,6 +74,8 @@ impl Kind {
             Self::Artists => "artists",
             Self::Tracks => "tracks",
             Self::Radio => "radios",
+            Self::Podcasts => "podcasts",
+            Self::Audiobooks => "audiobooks",
         }
     }
     fn label(self) -> &'static str {
@@ -70,6 +85,8 @@ impl Kind {
             Self::Artists => "Artists",
             Self::Tracks => "Tracks",
             Self::Radio => "Radio",
+            Self::Podcasts => "Podcasts",
+            Self::Audiobooks => "Audiobooks",
         }
     }
     fn media_type(self) -> &'static str {
@@ -79,6 +96,8 @@ impl Kind {
             Self::Artists => "artist",
             Self::Tracks => "track",
             Self::Radio => "radio",
+            Self::Podcasts => "podcast",
+            Self::Audiobooks => "audiobook",
         }
     }
 }
@@ -89,8 +108,14 @@ pub struct Media {
     pub detail: String,
     pub uri: String,
     pub kind: String,
+    /// Library identity, kept so an item can be named back to the server.
+    pub id: String,
+    pub provider: String,
     pub playable: bool,
     pub available: bool,
+    /// Listening progress, for the media types that report it.
+    pub fully_played: bool,
+    pub resume_ms: Option<u64>,
     pub open: Option<Target>,
 }
 impl Media {
@@ -100,8 +125,12 @@ impl Media {
             detail: "Enter to browse".into(),
             uri: String::new(),
             kind: "folder".into(),
+            id: String::new(),
+            provider: String::new(),
             playable: false,
             available: true,
+            fully_played: false,
+            resume_ms: None,
             open: Some(target),
         }
     }
@@ -119,15 +148,21 @@ impl Media {
                     path: Some(p.into()),
                 })
         } else if !id.is_empty() && !provider.is_empty() {
+            let (id, provider) = (id.clone(), provider.clone());
             match kind.as_str() {
                 "album" => Some(Target::Album { id, provider }),
                 "playlist" => Some(Target::Playlist { id, provider }),
                 "artist" => Some(Target::Artist { id, provider }),
+                "podcast" => Some(Target::Podcast { id, provider }),
                 _ => None,
             }
         } else {
             None
         };
+        // Both are null when the provider does not report progress, which is
+        // not the same as "not played": nothing is shown then.
+        let fully_played = v["fully_played"].as_bool().unwrap_or(false);
+        let resume_ms = v["resume_position_ms"].as_u64().filter(|ms| *ms > 0);
         let artists = v["artists"]
             .as_array()
             .into_iter()
@@ -135,16 +170,23 @@ impl Media {
             .filter_map(|a| a["name"].as_str())
             .collect::<Vec<_>>()
             .join(", ");
-        let detail = if artists.is_empty() {
-            clean(&format!("{} · {}", kind, value("provider")))
+        let progress = if fully_played {
+            " · played".into()
         } else {
-            clean(&format!("{artists} · {kind}"))
+            resume_ms.map_or(String::new(), |ms| format!(" · resume {}", position(ms)))
+        };
+        let detail = if artists.is_empty() {
+            clean(&format!("{kind} · {}{progress}", value("provider")))
+        } else {
+            clean(&format!("{artists} · {kind}{progress}"))
         };
         Self {
             title: clean(&value("name")),
             detail,
             uri: uri.clone(),
             kind: kind.clone(),
+            id,
+            provider,
             available: v["available"] != false,
             playable: !uri.is_empty()
                 && v["is_playable"].as_bool().unwrap_or(matches!(
@@ -159,8 +201,37 @@ impl Media {
                         | "podcast_episode"
                         | "audio_source"
                 )),
+            fully_played,
+            resume_ms,
             open,
         }
+    }
+
+    /// The identity Music Assistant needs to name this item back to itself.
+    /// These are `ItemMapping`'s only required fields.
+    pub fn item(&self) -> Option<Value> {
+        (!self.id.is_empty() && !self.provider.is_empty() && !self.kind.is_empty()).then(|| {
+            json!({
+                "item_id": self.id,
+                "provider": self.provider,
+                "name": self.title,
+                "media_type": self.kind,
+            })
+        })
+    }
+
+    /// Whether this kind of item keeps a listening position worth editing.
+    fn tracks_progress(&self) -> bool {
+        matches!(self.kind.as_str(), "podcast_episode" | "audiobook")
+    }
+}
+
+/// A resume point, which for an audiobook is routinely hours in.
+fn position(ms: u64) -> String {
+    let seconds = ms / 1000;
+    match (seconds / 3600, (seconds % 3600) / 60, seconds % 60) {
+        (0, minutes, seconds) => format!("{minutes}:{seconds:02}"),
+        (hours, minutes, seconds) => format!("{hours}:{minutes:02}:{seconds:02}"),
     }
 }
 fn clean(s: &str) -> String {
@@ -192,13 +263,19 @@ pub struct Page {
 }
 impl Default for Page {
     fn default() -> Self {
-        let mut items = vec![];
+        // What you were in the middle of comes before the whole library.
+        let mut items = vec![
+            Media::folder("Continue listening", Target::InProgress),
+            Media::folder("Recently added", Target::RecentlyAdded),
+        ];
         for kind in [
             Kind::Playlists,
             Kind::Albums,
             Kind::Artists,
             Kind::Tracks,
             Kind::Radio,
+            Kind::Podcasts,
+            Kind::Audiobooks,
         ] {
             items.push(Media::folder(
                 kind.label(),
@@ -238,8 +315,38 @@ pub struct Browser {
     pub generation: u64,
     pub loading: bool,
     pub error: String,
+    /// When progress was last re-read, so a playing audiobook's steady stream
+    /// of playlog updates cannot turn into a steady stream of requests.
+    refreshed: Option<std::time::Instant>,
 }
 impl Browser {
+    /// Whether what is on screen would show a change in listening progress.
+    fn shows_progress(&self) -> bool {
+        matches!(
+            self.page.target,
+            Target::InProgress
+                | Target::Podcast { .. }
+                | Target::Library {
+                    kind: Kind::Podcasts | Kind::Audiobooks,
+                    ..
+                }
+        )
+    }
+
+    /// Re-read the listing when progress changed elsewhere, at most this often.
+    pub fn progress_changed(&mut self, now: std::time::Instant) -> Option<Action> {
+        const THROTTLE: std::time::Duration = std::time::Duration::from_secs(3);
+        if self.loading
+            || !self.shows_progress()
+            || self
+                .refreshed
+                .is_some_and(|last| now.saturating_duration_since(last) < THROTTLE)
+        {
+            return None;
+        }
+        self.refreshed = Some(now);
+        Some(self.reload())
+    }
     pub fn navigate(&mut self, target: Target, title: String) -> Action {
         if self.history.len() == 32 {
             self.history.remove(0);
@@ -334,6 +441,22 @@ impl ApiClient {
                 json!({"item_id":id,"provider_instance_id_or_domain":provider}),
                 "track",
             ),
+            Target::Podcast { id, provider } => (
+                "music/podcasts/podcast_episodes".into(),
+                json!({"item_id":id,"provider_instance_id_or_domain":provider}),
+                "podcast_episode",
+            ),
+            // Neither takes an offset: these are shelves, not paged libraries.
+            Target::InProgress => (
+                "music/in_progress_items".into(),
+                json!({ "limit": PAGE_SIZE }),
+                "",
+            ),
+            Target::RecentlyAdded => (
+                "music/recently_added_tracks".into(),
+                json!({ "limit": PAGE_SIZE }),
+                "track",
+            ),
             Target::Providers { path } => ("music/browse".into(), json!({"path":path}), ""),
         };
         let value = self.command(&command, args).await?;
@@ -370,33 +493,58 @@ impl ApiClient {
 }
 
 pub fn choose(app: &mut App, media: &Media) -> Action {
-    let Some(player) = app
+    let player = app
         .players
         .iter()
-        .find(|p| Some(&p.id) == app.selected_id.as_ref() && p.available && app.connected)
-    else {
-        app.status = "Select a speaker in Players first, then choose music".into();
-        return Action::None;
-    };
-    if !media.available || !media.playable {
-        app.status = "This item is not available for playback".into();
+        .find(|p| Some(&p.id) == app.selected_id.as_ref() && p.available && app.connected);
+    let mut entries: Vec<crate::controls::Entry> = Vec::new();
+    if player.is_some() && media.available && media.playable {
+        entries.extend(
+            [
+                ("Play now (replace queue)", Action::Play(media.uri.clone())),
+                ("Play next", Action::PlayNext(media.uri.clone())),
+                ("Add to queue", Action::Enqueue(media.uri.clone())),
+            ]
+            .into_iter()
+            .map(|(label, action)| crate::controls::Entry {
+                section: "Play this item",
+                label: label.into(),
+                action,
+            }),
+        );
+    }
+    // Progress is a library fact, not a playback one, so it needs no speaker.
+    if media.tracks_progress() {
+        if let Some(item) = media.item() {
+            entries.extend(
+                [("Mark as played", true), ("Mark as not played", false)]
+                    .into_iter()
+                    .map(|(label, played)| crate::controls::Entry {
+                        section: "Listening progress",
+                        label: label.into(),
+                        action: Action::MarkPlayed {
+                            item: item.clone(),
+                            played,
+                        },
+                    }),
+            );
+        }
+    }
+    if entries.is_empty() {
+        app.status = if player.is_none() {
+            "Select a speaker in Players first, then choose music".into()
+        } else {
+            "This item is not available for playback".into()
+        };
         return Action::None;
     }
     app.menu = Some(crate::controls::Menu {
-        player: Some(player.id.clone()),
-        title: format!("Play on {} · {}", player.name, media.title),
-        entries: [
-            ("Play now (replace queue)", Action::Play(media.uri.clone())),
-            ("Play next", Action::PlayNext(media.uri.clone())),
-            ("Add to queue", Action::Enqueue(media.uri.clone())),
-        ]
-        .into_iter()
-        .map(|(label, action)| crate::controls::Entry {
-            section: "Play this item",
-            label: label.into(),
-            action,
-        })
-        .collect(),
+        player: player.map(|p| p.id.clone()),
+        title: match player {
+            Some(player) => format!("{} · on {}", media.title, player.name),
+            None => media.title.clone(),
+        },
+        entries,
         cursor: 0,
         prompt: None,
         error: String::new(),

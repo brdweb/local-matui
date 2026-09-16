@@ -188,6 +188,38 @@ output test asserts every accepted buffer reaches the sink with emission
 instants advancing with the audio; analysis, timing, bounds, rendering and the
 empty-state explanations are covered without hardware.
 
+## Podcasts and audiobooks (2026-09-16)
+
+Music Assistant already keeps the listening state; the client only has to read
+and show it. Library browsing uses the same `music/<type>s/library_items`
+command as every other type, because MA derives that base from the media type
+(`api_base = f"{media_type}s"`), so podcasts and audiobooks need no special
+casing. `music/in_progress_items` and `music/recently_added_tracks` are the
+"continue listening" and "latest" shelves: the server maintains both, they take
+a limit and no offset, and the interface only renders them.
+
+`PodcastEpisode` and `Audiobook` carry `fully_played` and `resume_position_ms`,
+hydrated per user from the playlog table and falling back to the provider's own
+state. Both are null when the provider does not report progress, which is not
+the same as "not played": nothing is shown then rather than claiming unplayed.
+
+A podcast opens into `music/podcasts/podcast_episodes`. An audiobook does not
+open into anything: 2.10.2 has no chapter model at all, only
+`audiobook_versions`, so an audiobook is one playable item with a resume point.
+Do not build a chapter listing against this server version.
+
+`music/mark_played` and `music/mark_unplayed` take the item itself rather than a
+URI, so `Media` keeps `item_id` and `provider` and hands back the four fields
+`ItemMapping` requires. Marking is a library edit and deliberately needs no
+speaker, which is why the controls menu permits a player-free action and the
+item menu opens without a selection. `playlog_updated` re-reads a listing that
+would show progress, throttled, because a playing audiobook produces those
+events continuously.
+
+Sources: `controllers/music/controller.py`, `controllers/music/media/base.py`,
+`media/podcasts.py` and `media/audiobooks.py` at server tag 2.10.2, and
+`media_items/media_item.py` in music-assistant/models.
+
 ## Engineering safeguards
 
 - Treat successful command submission separately from confirmed player state.

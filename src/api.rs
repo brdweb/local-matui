@@ -329,6 +329,22 @@ impl ApiClient {
         .await?;
         Ok(())
     }
+    /// Mark a library item played or unplayed. MA names the item itself rather
+    /// than a URI, so the caller supplies its identity; the four required
+    /// `ItemMapping` fields are enough for the server to resolve it.
+    pub async fn mark_played(&self, item: Value, played: bool) -> Result<()> {
+        let (command, args) = if played {
+            (
+                "music/mark_played",
+                json!({"media_item":item,"fully_played":true}),
+            )
+        } else {
+            ("music/mark_unplayed", json!({ "media_item": item }))
+        };
+        self.command(command, args).await?;
+        Ok(())
+    }
+
     pub async fn search(&self, query: &str) -> Result<Vec<Track>> {
         let v = self
             .command(
