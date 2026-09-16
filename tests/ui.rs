@@ -296,10 +296,9 @@ fn the_queue_and_browser_are_visible_together_with_playback_state() {
         "NOW PLAYING · KITCHEN",
         "SHUFFLE ON",
         "REPEAT ONE",
-        // The transport row carries the state and the volume.
-        "⏮",
-        "⏹",
-        "⏭",
+        // Nothing here is clickable, so the transport row says the state
+        // rather than drawing buttons that cannot be pressed.
+        "PLAYING",
         "MUTED",
         // The queue is a table with a state column.
         "#   TITLE",
@@ -310,10 +309,17 @@ fn the_queue_and_browser_are_visible_together_with_playback_state() {
             "{expected} missing from the screen"
         );
     }
+    // Rules and a column divider separate the panes; nothing is boxed in.
     assert!(
-        !text.contains('┌') && !text.contains('│'),
-        "no pane is drawn as a box any more"
+        text.contains('│') && text.contains('─'),
+        "the sections are separated by rules"
     );
+    for corner in ['┌', '┐', '└', '┘'] {
+        assert!(
+            !text.contains(corner),
+            "{corner}: no pane is drawn as a box any more"
+        );
+    }
 }
 
 /// The current queue item is named as playing; the others show their length.
@@ -500,4 +506,39 @@ fn the_player_carries_the_spectrum_when_there_is_room_for_it() {
         !render(false, 110, 30).contains("no local audio"),
         "without local audio there is no strip at all"
     );
+}
+
+/// The transport row is a readout, not a control surface: it names the state
+/// rather than drawing buttons that a keyboard cannot press.
+#[test]
+fn the_transport_row_reads_out_state_and_draws_no_buttons() {
+    let mut app = ui::App {
+        connected: true,
+        selected_id: Some("one".into()),
+        players: vec![ui::PlayerView {
+            id: "one".into(),
+            available: true,
+            state: "paused".into(),
+            volume: Some(80),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(110, 30)).unwrap();
+    terminal.draw(|frame| ui::draw(frame, &mut app)).unwrap();
+    let text: String = terminal
+        .backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect();
+    assert!(text.contains("PAUSED"), "the state is said outright");
+    assert!(text.contains("VOL 80"));
+    for button in ['⏮', '⏹', '⏭'] {
+        assert!(
+            !text.contains(button),
+            "{button} is not pressable, so it is not drawn"
+        );
+    }
 }

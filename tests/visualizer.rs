@@ -1,5 +1,6 @@
 //! Spectrum analysis and visualizer presentation. Signals here are generated
 //! in the test, not captured from any device or personal media.
+use local_matui::config::Spectrum as Style;
 use local_matui::visualizer::{self, Analyzer, Meter, Mode, Spectrum, BANDS, WINDOW};
 use std::time::{Duration, Instant};
 
@@ -205,7 +206,13 @@ fn the_meter_rises_at_once_and_falls_back_over_time() {
     assert_eq!(meter.peaks()[bar], 0.0);
 }
 
-fn drawn(width: u16, height: u16, meter: &Meter, reason: Option<&str>) -> String {
+fn drawn_with(
+    style: Style,
+    width: u16,
+    height: u16,
+    meter: &Meter,
+    reason: Option<&str>,
+) -> String {
     let mut terminal =
         ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, height)).unwrap();
     terminal
@@ -216,6 +223,7 @@ fn drawn(width: u16, height: u16, meter: &Meter, reason: Option<&str>) -> String
                 local_matui::theme::Palette::default(),
                 meter,
                 reason,
+                style,
             )
         })
         .unwrap();
@@ -229,12 +237,16 @@ fn drawn(width: u16, height: u16, meter: &Meter, reason: Option<&str>) -> String
 }
 
 /// Segments drawn in the accent colour, which is what "lit" means here.
-fn lit(width: u16, height: u16, meter: &Meter) -> usize {
+fn drawn(width: u16, height: u16, meter: &Meter, reason: Option<&str>) -> String {
+    drawn_with(Style::Blocks, width, height, meter, reason)
+}
+
+fn lit_with(style: Style, width: u16, height: u16, meter: &Meter) -> usize {
     let palette = local_matui::theme::Palette::default();
     let mut terminal =
         ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, height)).unwrap();
     terminal
-        .draw(|frame| visualizer::render(frame, frame.area(), palette, meter, None))
+        .draw(|frame| visualizer::render(frame, frame.area(), palette, meter, None, style))
         .unwrap();
     let count = terminal
         .backend()
@@ -246,10 +258,14 @@ fn lit(width: u16, height: u16, meter: &Meter) -> usize {
     count
 }
 
+fn lit(width: u16, height: u16, meter: &Meter) -> usize {
+    lit_with(Style::Blocks, width, height, meter)
+}
+
 #[test]
 fn rendering_draws_bars_for_audio_and_an_explanation_without_it() {
     let mut meter = Meter::default();
-    let (bars, _, _) = visualizer::columns(100);
+    let (bars, _, _) = visualizer::columns(100, Style::Blocks);
     let mut bands = [0u8; BANDS];
     bands[32] = 255;
     meter.update(Some(bands), bars, Instant::now());
@@ -284,8 +300,8 @@ fn rendering_draws_bars_for_audio_and_an_explanation_without_it() {
 
 #[test]
 fn the_frequency_ruler_lines_up_with_the_bars_it_labels() {
-    let ruler = visualizer::scale(100, RATE);
-    let (_, bar, gap) = visualizer::columns(100);
+    let ruler = visualizer::scale(100, RATE, Style::Blocks);
+    let (_, bar, gap) = visualizer::columns(100, Style::Blocks);
     assert!(ruler.len() <= 100);
     for mark in ["100", "1k", "10k"] {
         let column = ruler.find(mark).unwrap_or_else(|| panic!("{mark} missing"));
@@ -296,12 +312,13 @@ fn the_frequency_ruler_lines_up_with_the_bars_it_labels() {
         );
     }
     assert!(
-        visualizer::scale(100, RATE).find("10k") > visualizer::scale(100, RATE).find("100"),
+        visualizer::scale(100, RATE, Style::Blocks).find("10k")
+            > visualizer::scale(100, RATE, Style::Blocks).find("100"),
         "labels must ascend with frequency"
     );
     // A rate whose Nyquist limit excludes a decade simply omits its label.
-    assert!(!visualizer::scale(100, 8_000).contains("10k"));
-    assert!(visualizer::scale(0, RATE).is_empty());
+    assert!(!visualizer::scale(100, 8_000, Style::Blocks).contains("10k"));
+    assert!(visualizer::scale(0, RATE, Style::Blocks).is_empty());
 }
 
 #[test]
@@ -390,4 +407,41 @@ fn the_analyzer_is_the_sink_the_audio_output_writes_to() {
     sink.set_muted(false);
     sink.clear();
     assert_eq!(analyzer.capture(at), Err("no local audio"));
+}
+
+/// Braille packs 2x4 dots per cell, so the same strip resolves four times finer
+/// vertically than blocks do, and every glyph stays inside the braille block.
+#[test]
+fn braille_resolves_finer_than_blocks_and_stays_in_its_unicode_block() {
+    let mut meter = Meter::default();
+    let (bars, _, _) = visualizer::columns(60, Style::Braille);
+    assert_eq!(bars, 60, "braille fits one bar per column, with no gap");
+
+    // A level too small to fill a single block row still lights a braille dot.
+    let mut bands = [0u8; BANDS];
+    bands[32] = 24;
+    meter.update(Some(bands), bars, Instant::now());
+    let fine = lit_with(Style::Braille, 60, 4, &meter);
+    assert!(
+        fine > 0,
+        "a quiet band must still register at braille resolution"
+    );
+
+    let picture = drawn_with(Style::Braille, 60, 4, &meter, None);
+    assert!(
+        picture
+            .chars()
+            .all(|c| c == '\n' || ('\u{2800}'..='\u{28FF}').contains(&c)),
+        "every drawn glyph must be a braille pattern"
+    );
+
+    // The empty state is shared: no bars, and the reason is still said.
+    let empty = drawn_with(Style::Braille, 60, 4, &meter, Some("no local audio"));
+    assert!(empty.contains("no local audio"));
+    assert_eq!(lit_with(Style::Braille, 60, 4, &Meter::default()), 0);
+
+    // Sizes below the interface minimum must not panic in either style.
+    for (width, height) in [(1u16, 1u16), (3, 2), (200, 60)] {
+        drawn_with(Style::Braille, width, height, &meter, None);
+    }
 }

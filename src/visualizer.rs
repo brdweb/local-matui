@@ -433,12 +433,72 @@ impl Meter {
 /// frequency ruler already says as much.
 const SEGMENT: &str = "▀";
 
-/// Bar width and gap for an area. One column per bar at every width keeps the
-/// comb fine, which is what makes a row of them read as a spectrum.
-pub fn columns(width: u16) -> (usize, usize, usize) {
+/// How many bars fit an area, and the cell width and gap of each. Braille packs
+/// one bar into every column with no gap to spend; blocks leave a gap so the
+/// comb stays legible at a coarser vertical resolution.
+pub fn columns(width: u16, style: crate::config::Spectrum) -> (usize, usize, usize) {
+    if style == crate::config::Spectrum::Braille {
+        return ((width as usize).max(1), 1, 0);
+    }
     let (bar, gap) = (1, 1);
     let bars = ((width as usize + gap) / (bar + gap)).max(1);
     (bars, bar, gap)
+}
+
+/// Dot bits in a braille cell, top to bottom, for the left and right columns.
+/// The block is laid out as 2x4 dots, which is what makes it four times finer
+/// vertically than the character grid it sits on.
+const LEFT_DOTS: [u8; 4] = [0x01, 0x02, 0x04, 0x40];
+const RIGHT_DOTS: [u8; 4] = [0x08, 0x10, 0x20, 0x80];
+
+/// Draw the bars as braille, one bar per column at four dot rows per character
+/// row. Neighbouring bars differ in height, so they read as separate bars
+/// without a gap between them to spend resolution on.
+fn render_braille(
+    frame: &mut ratatui::Frame,
+    area: Rect,
+    palette: Palette,
+    meter: &Meter,
+    lines: &mut Vec<Line<'static>>,
+) {
+    let (width, height) = (area.width as usize, area.height as usize);
+    let dots = height * 4;
+    let levels = meter.levels();
+    let peaks = meter.peaks();
+    for row in 0..height {
+        let mut spans: Vec<Span> = Vec::with_capacity(width);
+        for index in 0..width {
+            let level = levels.get(index).copied().unwrap_or(0.0);
+            let peak = peaks.get(index).copied().unwrap_or(0.0);
+            let filled = level * dots as f32;
+            let peak_dot = (peak * dots as f32).min(dots as f32 - 1.0) as usize;
+            let mut bits = 0u8;
+            let mut ghost = 0u8;
+            for sub in 0..4 {
+                let from_bottom = dots - 1 - (row * 4 + sub);
+                if (from_bottom as f32) < filled {
+                    bits |= LEFT_DOTS[sub] | RIGHT_DOTS[sub];
+                } else if peak > 0.0 && from_bottom == peak_dot {
+                    ghost |= LEFT_DOTS[sub] | RIGHT_DOTS[sub];
+                }
+            }
+            // A cell carries one colour, so the peak only shows where the bar
+            // itself has not already claimed the cell.
+            let (pattern, style) = if bits != 0 {
+                (bits, Style::default().fg(palette.accent))
+            } else {
+                (ghost, Style::default().fg(palette.secondary))
+            };
+            spans.push(Span::styled(
+                char::from_u32(0x2800 + pattern as u32)
+                    .unwrap_or(' ')
+                    .to_string(),
+                style,
+            ));
+        }
+        lines.push(Line::from(spans));
+    }
+    frame.render_widget(Paragraph::new(std::mem::take(lines)), area);
 }
 
 /// Draw the bars over `area`. `reason` replaces them with a flat baseline and
@@ -449,11 +509,12 @@ pub fn render(
     palette: Palette,
     meter: &Meter,
     reason: Option<&str>,
+    style: crate::config::Spectrum,
 ) {
     if area.width == 0 || area.height == 0 {
         return;
     }
-    let (bars, bar, gap) = columns(area.width);
+    let (bars, bar, gap) = columns(area.width, style);
     let height = area.height as usize;
     let mut lines: Vec<Line> = Vec::with_capacity(height);
     if let Some(reason) = reason {
@@ -472,6 +533,10 @@ pub fn render(
             }
         }
         frame.render_widget(Paragraph::new(lines), area);
+        return;
+    }
+    if style == crate::config::Spectrum::Braille {
+        render_braille(frame, area, palette, meter, &mut lines);
         return;
     }
     let levels = meter.levels();
@@ -507,8 +572,8 @@ pub fn render(
 
 /// Frequency ruler aligned to `render`'s bars, for the full-screen view.
 /// Labels are written at the column of the bar covering each decade.
-pub fn scale(width: u16, rate: u32) -> String {
-    let (bars, bar, gap) = columns(width);
+pub fn scale(width: u16, rate: u32, style: crate::config::Spectrum) -> String {
+    let (bars, bar, gap) = columns(width, style);
     let mut ruler = vec![' '; width as usize];
     let top = (MAX_HZ.min(rate.max(1) as f32 / 2.0)).max(MIN_HZ * 2.0);
     let ratio = (top / MIN_HZ).powf(1.0 / BANDS as f32);

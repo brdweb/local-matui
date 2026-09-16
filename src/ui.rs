@@ -535,6 +535,12 @@ pub struct App {
     /// Set while drawing when something on screen is mid-scroll, so the loop
     /// knows this frame is not the final one.
     pub scrolling: bool,
+    /// How the spectrum is drawn, from configuration.
+    pub spectrum_style: crate::config::Spectrum,
+    /// Set while drawing when the spectrum is on screen. It is driven by the
+    /// audio rather than by state changes, so it needs frames of its own; the
+    /// rest of the interface still costs nothing when nothing has changed.
+    pub animating: bool,
 }
 
 impl Default for App {
@@ -572,7 +578,9 @@ impl Default for App {
             connected: false,
             live: false,
             tick: 0,
+            spectrum_style: crate::config::Spectrum::default(),
             scrolling: false,
+            animating: false,
         }
     }
 }
@@ -616,7 +624,9 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     let rows = Layout::vertical([
         Constraint::Length(2),
         Constraint::Length(4 + strip),
+        Constraint::Length(1),
         Constraint::Min(3),
+        Constraint::Length(1),
         Constraint::Length(2),
         Constraint::Length(2),
     ])
@@ -654,10 +664,19 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         rows[0],
     );
     draw_now_playing(frame, app, rows[1], strip);
+    rule(frame, rows[2], palette);
+    rule(frame, rows[4], palette);
 
-    let cols = Layout::horizontal([Constraint::Percentage(35), Constraint::Percentage(65)])
-        .spacing(2)
-        .split(rows[2]);
+    // A divider between the columns rather than a box around each: the panes
+    // are separated, but nothing is fenced in.
+    let cols = Layout::horizontal([
+        Constraint::Percentage(35),
+        Constraint::Length(3),
+        Constraint::Min(10),
+    ])
+    .split(rows[3]);
+    divider(frame, cols[1], palette);
+    let cols = [cols[0], cols[2]];
     // Players are few and short; the queue takes the rest of the column so it
     // stays visible while browsing.
     let listed = (app.players.len() * 2 + 1) as u16;
@@ -682,11 +701,11 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     } else {
         format!("{}\n{}", app.status, app.audio_status)
     };
-    frame.render_widget(Paragraph::new(message), rows[3]);
+    frame.render_widget(Paragraph::new(message), rows[5]);
     frame.render_widget(
         Paragraph::new(format!("{}\n{}", hints(app), TRANSPORT_HINTS))
             .style(Style::default().fg(palette.secondary)),
-        rows[4],
+        rows[6],
     );
 }
 
@@ -790,7 +809,17 @@ fn draw_now_playing(frame: &mut Frame, app: &mut App, area: Rect, strip: u16) {
 
     if strip > 0 {
         let reason = spectrum(app, rows[3].width);
-        crate::visualizer::render(frame, rows[3], palette, &app.visualizer, reason.as_deref());
+        // Bars follow the audio, not the state of the interface, so this frame
+        // is never the last one while they are on screen.
+        app.animating |= reason.is_none();
+        crate::visualizer::render(
+            frame,
+            rows[3],
+            palette,
+            &app.visualizer,
+            reason.as_deref(),
+            app.spectrum_style,
+        );
     }
     draw_transport(frame, app, rows[4]);
 }
@@ -814,24 +843,33 @@ fn draw_transport(frame: &mut Frame, app: &App, area: Rect) {
         .find(|p| Some(&p.id) == app.selected_id.as_ref());
     let state = player.map_or("", |p| p.state.as_str());
     let columns = Layout::horizontal([
-        Constraint::Length(17),
+        Constraint::Length(12),
         Constraint::Min(10),
         Constraint::Length(12),
     ])
     .split(area);
 
     let dim = Style::default().fg(palette.secondary);
-    let filled = Style::default()
-        .fg(palette.background)
-        .bg(palette.accent)
-        .add_modifier(Modifier::BOLD);
-    // All four controls are always present; the filled one is the state the
-    // player is actually in, so the row reads without having to press anything.
+    // Nothing here is clickable, so buttons would be decoration. The state is
+    // what the row is actually for, and it is said rather than drawn.
+    let label = match state {
+        "playing" => "PLAYING",
+        "paused" => "PAUSED",
+        "" => "IDLE",
+        _ => "STOPPED",
+    };
     frame.render_widget(
         Paragraph::new(Line::from(vec![
-            Span::styled("⏮  ", dim),
-            Span::styled(format!(" {} ", transport(state)), filled),
-            Span::styled("  ⏹  ⏭ ", dim),
+            Span::styled(
+                format!("{} ", transport(state)),
+                Style::default().fg(palette.accent),
+            ),
+            Span::styled(
+                label,
+                Style::default()
+                    .fg(palette.accent)
+                    .add_modifier(Modifier::BOLD),
+            ),
         ])),
         columns[0],
     );
@@ -1054,7 +1092,7 @@ fn transport(state: &str) -> &'static str {
 /// Advance the visualizer for this frame and report why it is empty when it
 /// is. Bars are only ever drawn from decoded samples this process is playing.
 fn spectrum(app: &mut App, width: u16) -> Option<String> {
-    let (bars, _, _) = crate::visualizer::columns(width);
+    let (bars, _, _) = crate::visualizer::columns(width, app.spectrum_style);
     let now = std::time::Instant::now();
     let captured = app.spectrum.as_ref().map(|analyzer| analyzer.capture(now));
     app.visualizer.update(
@@ -1079,7 +1117,14 @@ fn draw_spectrum_panel(frame: &mut Frame, app: &mut App, area: Rect) {
     let inner = heading(frame, area, palette, "SPECTRUM · LOCAL OUTPUT", true);
     let rows = Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).split(inner);
     let reason = spectrum(app, rows[0].width);
-    crate::visualizer::render(frame, rows[0], palette, &app.visualizer, reason.as_deref());
+    crate::visualizer::render(
+        frame,
+        rows[0],
+        palette,
+        &app.visualizer,
+        reason.as_deref(),
+        app.spectrum_style,
+    );
     frame.render_widget(
         Paragraph::new(ruler(app, rows[1].width, reason.is_some()))
             .style(Style::default().fg(palette.secondary)),
@@ -1092,7 +1137,7 @@ fn ruler(app: &App, width: u16, empty: bool) -> String {
     if empty || rate == 0 {
         return String::new();
     }
-    crate::visualizer::scale(width, rate)
+    crate::visualizer::scale(width, rate, app.spectrum_style)
 }
 
 /// The whole terminal: bars over a compact now-playing line.
@@ -1108,7 +1153,14 @@ fn draw_visualizer(frame: &mut Frame, app: &mut App, area: Rect) {
     ])
     .split(area);
     let reason = spectrum(app, rows[0].width);
-    crate::visualizer::render(frame, rows[0], palette, &app.visualizer, reason.as_deref());
+    crate::visualizer::render(
+        frame,
+        rows[0],
+        palette,
+        &app.visualizer,
+        reason.as_deref(),
+        app.spectrum_style,
+    );
     frame.render_widget(
         Paragraph::new(ruler(app, rows[1].width, reason.is_some()))
             .style(Style::default().fg(palette.secondary)),
@@ -1165,6 +1217,32 @@ fn draw_visualizer(frame: &mut Frame, app: &mut App, area: Rect) {
         )
         .style(Style::default().fg(palette.secondary)),
         rows[5],
+    );
+}
+
+/// A horizontal rule separating one band of the interface from the next.
+fn rule(frame: &mut Frame, area: Rect, palette: Palette) {
+    if area.height == 0 {
+        return;
+    }
+    frame.render_widget(
+        Paragraph::new("─".repeat(area.width as usize))
+            .style(Style::default().fg(palette.secondary)),
+        area,
+    );
+}
+
+/// A vertical rule between two columns.
+fn divider(frame: &mut Frame, area: Rect, palette: Palette) {
+    let middle = Rect {
+        x: area.x + area.width / 2,
+        width: 1.min(area.width),
+        ..area
+    };
+    frame.render_widget(
+        Paragraph::new(vec![Line::raw("│"); area.height as usize])
+            .style(Style::default().fg(palette.secondary)),
+        middle,
     );
 }
 
