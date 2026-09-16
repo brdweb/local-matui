@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.9.1 — 2026-09-16
+
+- Update rustls to 0.23.45 for RUSTSEC-2026-0285, which 0.9.0 shipped. Rustls
+  accepted TLS 1.3 handshake messages sent at the wrong encryption level. The
+  handshake transcript stays authenticated, so this could not be used to alter
+  or complete a handshake; the effect is that a peer could send messages in
+  plaintext that should have been encrypted without the connection being
+  refused. Update if you connect to Music Assistant over HTTPS.
+- Update uuid to 1.26.1.
+- The advisory audit now runs on main, on demand and weekly rather than on every
+  pull request, where an advisory published after a branch was opened failed it
+  for reasons unrelated to its contents.
+- Correct the README, which still described a visualizer with a `v` key, a
+  spectrum panel and a full-screen view. None of those exist: the spectrum is
+  part of the player. Album art was undocumented.
+
 ## 0.9.0 — 2026-09-16
 
 First release under the name **ma-tui**, and the first that is not a beta. It is

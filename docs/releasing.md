@@ -1,7 +1,7 @@
 # Releases
 
-Releases require explicit user authorization. The current release is `v0.9.0`,
-the first as ma-tui and the first that is not a beta. `v0.1.0-beta.2` was
+Releases require explicit user authorization. The current release is `v0.9.1`.
+`v0.9.0` was the first as ma-tui and the first that was not a beta. `v0.1.0-beta.2` was
 published as local-matui before the rename, and `v0.1.0-beta.1` under that same
 former name and withdrawn the same day; its tag and assets were deleted rather
 than rewritten. MA-TUI is MIT licensed; include the root LICENSE in all new
@@ -43,6 +43,17 @@ does not have: `0.9.0` is used as is. The package is unsigned and no AUR or
 distribution-repository publication is implied. No service is deployed. The
 Flatpak application branch is `stable`; it was `beta` while the releases were,
 and a ref is not upgraded across branches.
+
+## 0.9.1 validation (2026-09-16)
+
+A patch release for RUSTSEC-2026-0285 in rustls, which 0.9.0 shipped: the
+advisory was published two days before that release and the audit caught it on
+the release commit. Formatting, strict Clippy, all test targets, the five
+terminal fixtures, the Arch package through install/verify/uninstall in a
+disposable container, and the Flatpak through identity, sandbox, keyring, PTY,
+controller and silent-audio verification were re-run on a clean checkout of the
+release commit. No live server test was repeated for this release; nothing in it
+changes how the server is talked to beyond the TLS library.
 
 ## 0.9.0 validation (2026-09-16)
 
