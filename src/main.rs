@@ -98,6 +98,22 @@ async fn main() -> Result<()> {
                 None => "not reported — sixel is not possible".into(),
             }
         );
+        println!(
+            "TMUX          {}",
+            if std::env::var_os("TMUX").is_some() {
+                "yes — a multiplexer mostly will not forward pixels"
+            } else {
+                "no"
+            }
+        );
+        println!(
+            "ZELLIJ        {}",
+            if std::env::var_os("ZELLIJ").is_some() {
+                "yes — a multiplexer mostly will not forward pixels"
+            } else {
+                "no"
+            }
+        );
         for setting in [
             ma_tui::config::AlbumArt::Auto,
             ma_tui::config::AlbumArt::Sixel,
@@ -106,11 +122,7 @@ async fn main() -> Result<()> {
             println!(
                 "album_art = {:<8} draws {}",
                 format!("{setting:?}").to_lowercase(),
-                if artwork::use_sixel(setting) {
-                    "sixel"
-                } else {
-                    "half blocks"
-                }
+                artwork::renderer(setting).1
             );
         }
         let art = artwork::test_pattern(96);

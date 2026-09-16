@@ -277,20 +277,48 @@ pub fn cell_pixels() -> Option<(u16, u16)> {
 /// the input stream. `sixel` and `blocks` in the configuration settle it
 /// outright for anyone this guesses wrong about.
 pub fn use_sixel(setting: crate::config::AlbumArt) -> bool {
+    renderer(setting).0
+}
+
+/// The same decision with the reason for it, so a terminal that cannot be drawn
+/// into this way can say which part of the guess failed rather than silently
+/// looking worse than it should.
+pub fn renderer(setting: crate::config::AlbumArt) -> (bool, &'static str) {
     use crate::config::AlbumArt;
     match setting {
-        AlbumArt::Sixel => true,
-        AlbumArt::Off | AlbumArt::Blocks => false,
+        AlbumArt::Sixel => (true, "sixel, because the configuration asks for it"),
+        AlbumArt::Blocks => (false, "half blocks, because the configuration asks for it"),
+        AlbumArt::Off => (false, "nothing: album art is turned off"),
         AlbumArt::Auto => {
+            // A multiplexer sits between this program and the terminal drawing
+            // the pixels, and mostly does not forward them. It also rewrites
+            // TERM, so the terminal underneath cannot be recognised anyway.
+            if std::env::var_os("TMUX").is_some() {
+                return (false, "half blocks: running inside tmux");
+            }
+            if std::env::var_os("ZELLIJ").is_some() {
+                return (false, "half blocks: running inside zellij");
+            }
             if cell_pixels().is_none() {
-                return false;
+                return (
+                    false,
+                    "half blocks: this terminal reports no pixel cell size",
+                );
             }
             let term = std::env::var("TERM").unwrap_or_default();
             let program = std::env::var("TERM_PROGRAM").unwrap_or_default();
-            term.starts_with("foot")
+            let known = term.starts_with("foot")
                 || term.contains("mlterm")
                 || term.contains("contour")
-                || program.eq_ignore_ascii_case("WezTerm")
+                || program.eq_ignore_ascii_case("WezTerm");
+            if known {
+                (true, "sixel: this terminal is known to draw it")
+            } else {
+                (
+                    false,
+                    "half blocks: TERM is not a terminal known to draw sixel",
+                )
+            }
         }
     }
 }
