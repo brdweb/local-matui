@@ -67,7 +67,8 @@ Music Assistant and paste it in the masked token field. Passwords are never
 saved; the resulting token is stored in the desktop Secret Service keyring via
 `secret-tool` (`libsecret` on Arch). Unlock the desktop keyring if saving fails.
 `MA_TUI_TOKEN` remains available as an environment override for temporary use;
-`MATUI_TOKEN` is still read for setups configured before the rename.
+`LOCAL_MATUI_TOKEN` and `MATUI_TOKEN` are still read, newest first, for setups
+configured before either rename.
 
 Set the server URL, speaker name and audio output, then select **Test connection
 and save login**. This first checks that the URL returns Music Assistant server information,
@@ -95,29 +96,37 @@ running MA-TUI; running over SSH does not forward audio to the SSH client.
 
 Non-secret settings live at `$XDG_CONFIG_HOME/ma-tui/config.toml` or
 `~/.config/ma-tui/config.toml`, with mode 0600. `--config PATH` selects another file.
-A configuration left at the pre-rename `matui/config.toml` is still read while no
-current one exists, and a login saved under the former keyring name is still
-found; move the file into `ma-tui/` to switch directories. Nothing is
-copied or deleted for you.
-Keep `player_id` unchanged to retain the same Music Assistant speaker identity.
+A configuration left at a pre-rename `local-matui/config.toml` or
+`matui/config.toml` is still read while no current one exists, newest first, and
+a login saved under either former keyring name is still found; move the file
+into `ma-tui/` to switch directories. Nothing is copied or deleted for you.
+Keep `player_id` unchanged to retain the same Music Assistant speaker identity;
+`player_name` is what this computer advertises as a speaker, though Music
+Assistant keeps its own name for a player once you rename it there. `spectrum`
+(`braille` or `blocks`) and `album_art` (`auto`, `sixel`, `blocks` or `off`)
+choose how the player draws.
 `--init` creates a configuration without overwriting an existing one. Do not put
 tokens in TOML or Git. Prefer HTTPS outside a trusted LAN; HTTP does not encrypt
 credentials or audio. URL userinfo, query strings and fragments are rejected.
 
 ## Playback and player controls
 
-The screen keeps the players and the queue in the left column and the music
-browser or search results on the right, so the queue stays visible while you
-browse. The header shows the track, transport state, volume, mute and the
-queue's shuffle/repeat setting. The bottom two lines are the keys for the
-focused pane and the transport keys.
+The player leads: where it is playing, the track, the position, a spectrum of
+MA-TUI's own output and the transport state. Below it the speakers and the queue
+sit in the left column and the music browser, search results or a menu on the
+right, so the queue stays visible while you browse and the player keeps running
+whatever else is on screen. The focused pane's heading is filled with the accent
+colour. The bottom two lines are the keys for the focused pane and the transport
+keys.
 
 Select a speaker with Enter, then browse the **Music** pane. It opens with
-playlists, albums, artists, tracks, radio, favorite tracks and provider browsing.
-Enter opens a collection or folder; on a track it offers **Play now (replace
-queue)**, **Play next**, or **Add to queue**, naming the destination speaker.
-Press **P** on an album or playlist to choose playback for the whole collection.
-Browsing works before selecting a speaker and does not start playback.
+**Continue listening**, **Unplayed podcasts** and **Recently added**, then the
+libraries — playlists, albums, artists, tracks, radio, podcasts and audiobooks —
+favorite tracks and provider browsing. Enter opens a collection or folder; on a
+track it offers **Play now (replace queue)**, **Play next**, or **Add to queue**,
+naming the destination speaker. Press **P** on an album, playlist or podcast to
+choose playback for the whole collection, or to mark an episode or audiobook
+played. Browsing works before selecting a speaker and does not start playback.
 
 | Key | Action |
 | --- | --- |
@@ -133,16 +142,15 @@ Browsing works before selecting a speaker and does not start playback.
 | / | Search; Enter submits, Esc cancels |
 | b / F3 | Open music browser |
 | Enter in music/search | Open collection or choose playback for an item |
-| P in music/search | Choose playback for the whole highlighted collection/item |
+| P in music/search | Choose playback for the whole item, or mark it played |
 | a / N in music/search | Add to queue / play next |
 | Backspace in music | Go back, restoring the previous selection |
 | ] in music | Next library page (100 items per page) |
 | F4 | Focus the queue pane |
-| Esc | Close the visualizer, leave search, or go back in the browser |
+| Esc | Leave search, go back in the browser, or close a menu |
 | Enter in queue | Play highlighted existing queue item |
 | Delete in queue | Remove highlighted item |
 | Shift-J / Shift-K in queue | Move item down/up |
-| v | Visualizer: spectrum panel, then full screen, then off |
 | ? / F1 | Open playback/player controls |
 | F2 | Connection settings (temporarily disconnects local speaker) |
 | r | Reload the music listing, or refresh player/queue state in other panes |
@@ -165,20 +173,27 @@ open albums and a top-tracks folder. Provider folders can expose music outside
 your saved library. Empty or failed listings offer back/search/retry guidance.
 The controls menu also accepts media URIs for playback and queueing.
 
-### Visualizer
+### Spectrum and album art
 
-**v** cycles a spectrum display: a panel in place of the browser, then a
-full-screen view over the track and progress line, then off. Esc closes it.
-Transport keys keep working in both.
+The spectrum is part of the player and always there while local audio is on and
+the terminal is tall enough; there is no key and no separate view. It is drawn in
+braille, which carries four times the vertical detail of block characters. Set
+`spectrum = "blocks"` in the configuration for a terminal font without braille
+coverage.
 
 The bars are a live analysis of the audio MA-TUI itself is playing through the
 local speaker. A remote speaker's audio never passes through this computer, so
-there is nothing to analyze then and nothing is invented: the view says which
+there is nothing to analyze then and nothing is invented: the strip says which
 speaker is playing instead. Muted output reads as silence. Bar height follows
 the decoded stream, not a measurement of the output device, and the display is
 aligned to when MA-TUI is scheduled to emit each sample — device buffering and
-acoustic latency are not measured. The visualizer needs local audio enabled
-(F2 settings); without it, **v** explains rather than opening an empty view.
+acoustic latency are not measured.
+
+Album art for the playing item sits beside it. `album_art` chooses how: `auto`
+asks the terminal whether it draws sixel and falls back to colour half blocks,
+`sixel` and `blocks` settle it outright, and `off` turns it off. Sixel is sharp;
+half blocks carry two pixels per character cell and are coarse. Run
+`ma-tui --check-art` to see what your terminal reports and compare the two.
 
 Controls target the selected player. Group queue ownership is resolved separately
 from player volume. Queue item edits retain the displayed queue identity and are
