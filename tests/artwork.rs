@@ -1,6 +1,6 @@
 //! Album art. The only image used is generated here; no cover or personal
 //! media is read, fetched or committed.
-use local_matui::artwork::{proxy_id, url, Art};
+use ma_tui::artwork::{proxy_id, url, Art};
 use ratatui::style::Color;
 use serde_json::json;
 
@@ -121,7 +121,7 @@ fn the_cover_is_found_wherever_the_server_puts_it() {
 /// it, and the interface is unchanged when there is no cover to show.
 #[test]
 fn the_player_shows_the_cover_beside_the_track_it_belongs_to() {
-    use local_matui::ui;
+    use ma_tui::ui;
     let render = |art: Option<Art>| {
         let mut app = ui::App {
             artwork: art,
@@ -220,8 +220,8 @@ fn sixel_output_is_well_formed_and_carries_the_image() {
 /// The renderer is chosen from configuration, and only guessed when asked to.
 #[test]
 fn the_cover_renderer_follows_the_setting() {
-    use local_matui::artwork::use_sixel;
-    use local_matui::config::AlbumArt;
+    use ma_tui::artwork::use_sixel;
+    use ma_tui::config::AlbumArt;
     assert!(use_sixel(AlbumArt::Sixel), "an explicit choice is honoured");
     assert!(!use_sixel(AlbumArt::Blocks));
     assert!(!use_sixel(AlbumArt::Off));

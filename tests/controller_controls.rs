@@ -1,4 +1,4 @@
-use local_matui::{
+use ma_tui::{
     api::ApiClient,
     controller::{Controller, Request, Update},
     ui::Action,
@@ -49,7 +49,7 @@ async fn player_commands_reach_the_server_once_and_expired_ones_are_dropped() {
     });
     // The server owns the volume step, so no player state is read first.
     let step = || {
-        Action::Command(local_matui::controls::Command::Player {
+        Action::Command(ma_tui::controls::Command::Player {
             name: "volume_up",
             args: serde_json::json!({}),
         })

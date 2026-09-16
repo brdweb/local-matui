@@ -1,4 +1,4 @@
-use local_matui::ui;
+use ma_tui::ui;
 
 #[test]
 fn selects_available_player_and_routes_controls_only_when_connected() {
@@ -27,7 +27,7 @@ fn selects_available_player_and_routes_controls_only_when_connected() {
     );
     assert_eq!(app.selected_id.as_deref(), Some("two"));
     let volume = |name| {
-        ui::Action::Command(local_matui::controls::Command::Player {
+        ui::Action::Command(ma_tui::controls::Command::Player {
             name,
             args: serde_json::json!({}),
         })
@@ -113,7 +113,7 @@ fn renders_disconnected_and_small_terminal_without_panicking() {
             .map(|c| c.symbol())
             .collect();
         if width > 50 {
-            assert!(text.contains("LOCAL-MATUI"));
+            assert!(text.contains("MA-TUI"));
             assert!(text.contains("Disconnected"));
             assert!(text.contains("No player selected"));
         }
@@ -124,7 +124,7 @@ fn renders_disconnected_and_small_terminal_without_panicking() {
 #[test]
 fn the_visualizer_opens_only_with_local_audio_and_closes_with_esc() {
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-    use local_matui::visualizer::Mode;
+    use ma_tui::visualizer::Mode;
     let key = |c| KeyEvent::new(c, KeyModifiers::NONE);
 
     let mut remote = ui::App::default();
@@ -132,12 +132,12 @@ fn the_visualizer_opens_only_with_local_audio_and_closes_with_esc() {
     assert_eq!(
         remote.visualizer.mode,
         Mode::Off,
-        "without Local Matui's own speaker there is nothing to visualize"
+        "without MA-TUI's own speaker there is nothing to visualize"
     );
     assert!(remote.status.contains("local audio"));
 
     let mut app = ui::App {
-        spectrum: Some(local_matui::visualizer::Analyzer::new()),
+        spectrum: Some(ma_tui::visualizer::Analyzer::new()),
         ..Default::default()
     };
     app.key(key(KeyCode::Char('v')));
@@ -156,12 +156,12 @@ fn the_visualizer_opens_only_with_local_audio_and_closes_with_esc() {
 
 #[test]
 fn both_visualizer_views_render_and_explain_a_silent_endpoint() {
-    use local_matui::visualizer::Mode;
+    use ma_tui::visualizer::Mode;
     let mut app = ui::App {
-        spectrum: Some(local_matui::visualizer::Analyzer::new()),
+        spectrum: Some(ma_tui::visualizer::Analyzer::new()),
         connected: true,
         selected_id: Some("kitchen".into()),
-        local_endpoint: Some("local-matui-endpoint".into()),
+        local_endpoint: Some("ma-tui-endpoint".into()),
         players: vec![ui::PlayerView {
             id: "kitchen".into(),
             name: "Kitchen".into(),
@@ -199,7 +199,7 @@ fn both_visualizer_views_render_and_explain_a_silent_endpoint() {
 #[test]
 fn shuffle_and_repeat_keys_act_on_the_displayed_queue() {
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-    use local_matui::controls::Command;
+    use ma_tui::controls::Command;
     use serde_json::json;
     let key = |c| KeyEvent::new(c, KeyModifiers::NONE);
     let mut app = ui::App {
@@ -434,11 +434,11 @@ fn position_runs_between_snapshots_and_every_snapshot_replaces_it() {
     assert_eq!(app.elapsed, 100.0, "the position stops at the duration");
 
     // A snapshot is authoritative: drift is replaced, never added to.
-    local_matui::presentation::apply(
+    ma_tui::presentation::apply(
         &mut app,
-        local_matui::controller::Update::Queue(
+        ma_tui::controller::Update::Queue(
             "one".into(),
-            Ok(local_matui::api::Queue {
+            Ok(ma_tui::api::Queue {
                 elapsed: 42.0,
                 ..Default::default()
             }),
@@ -462,7 +462,7 @@ fn position_runs_between_snapshots_and_every_snapshot_replaces_it() {
 fn the_player_carries_the_spectrum_when_there_is_room_for_it() {
     let render = |spectrum: bool, width: u16, height: u16| {
         let mut app = ui::App {
-            spectrum: spectrum.then(local_matui::visualizer::Analyzer::new),
+            spectrum: spectrum.then(ma_tui::visualizer::Analyzer::new),
             connected: true,
             selected_id: Some("kitchen".into()),
             players: vec![ui::PlayerView {

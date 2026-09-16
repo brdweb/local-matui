@@ -1,5 +1,5 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use local_matui::{
+use ma_tui::{
     music::{Browser, Kind, Media, Target},
     ui::{Action, App, Focus, PlayerView, TrackView},
 };
@@ -283,7 +283,7 @@ fn progress_can_be_marked_without_a_speaker_selected() {
     );
     // No speaker: playback entries are impossible, the progress ones are not.
     let mut app = App::default();
-    assert_eq!(local_matui::music::choose(&mut app, &episode), Action::None);
+    assert_eq!(ma_tui::music::choose(&mut app, &episode), Action::None);
     let menu = app.menu.as_ref().expect("a progress menu still opens");
     assert!(menu.player.is_none());
     let labels: Vec<&str> = menu.entries.iter().map(|e| e.label.as_str()).collect();
@@ -304,14 +304,14 @@ fn progress_can_be_marked_without_a_speaker_selected() {
 
     // With a speaker, playback comes first and progress is still offered.
     let mut app = connected();
-    local_matui::music::choose(&mut app, &episode);
+    ma_tui::music::choose(&mut app, &episode);
     let menu = app.menu.as_ref().unwrap();
     assert!(menu.entries[0].label.contains("Play now"));
     assert!(menu.entries.iter().any(|e| e.label == "Mark as played"));
 
     // A plain track keeps no listening position, so it is not offered one.
     let mut app = connected();
-    local_matui::music::choose(&mut app, &track());
+    ma_tui::music::choose(&mut app, &track());
     assert!(!app
         .menu
         .as_ref()

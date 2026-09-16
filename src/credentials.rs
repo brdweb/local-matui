@@ -5,14 +5,15 @@ use std::{process::Stdio, time::Duration};
 use tokio::{io::AsyncWriteExt, process::Command};
 
 /// Keyring attribute identifying this application's entries.
-const APPLICATION: &str = "local-matui";
-/// Entries stored before the rename; read, never written.
-const LEGACY_APPLICATION: &str = "matui";
+const APPLICATION: &str = "ma-tui";
+/// Names used before each rename, newest first. Read, never written, so an
+/// existing login keeps working without being re-entered.
+const LEGACY_APPLICATIONS: &[&str] = &["local-matui", "matui"];
 
 async fn invoke(application: &str, server: &str, id: &str, token: Option<&str>) -> Result<String> {
     let mut command = Command::new("secret-tool");
     if token.is_some() {
-        command.args(["store", "--label=Local Matui Music Assistant"]);
+        command.args(["store", "--label=MA-TUI Music Assistant"]);
     } else {
         command.arg("lookup");
     }
@@ -53,12 +54,16 @@ async fn invoke(application: &str, server: &str, id: &str, token: Option<&str>) 
 /// player. Report the current lookup's error so a locked or missing keyring is
 /// still described accurately.
 pub async fn load(server: &str, id: &str) -> Result<String> {
-    match invoke(APPLICATION, server, id, None).await {
-        Ok(token) => Ok(token),
-        Err(error) => invoke(LEGACY_APPLICATION, server, id, None)
-            .await
-            .map_err(|_| error),
+    let error = match invoke(APPLICATION, server, id, None).await {
+        Ok(token) => return Ok(token),
+        Err(error) => error,
+    };
+    for legacy in LEGACY_APPLICATIONS {
+        if let Ok(token) = invoke(legacy, server, id, None).await {
+            return Ok(token);
+        }
     }
+    Err(error)
 }
 pub async fn save(server: &str, id: &str, token: &str) -> Result<()> {
     invoke(APPLICATION, server, id, Some(token))

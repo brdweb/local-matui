@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+- Rename the project to **ma-tui**, displayed as **MA-TUI**. The previous name
+  shared a binary with an existing Matrix TUI also called `matui`, which would
+  have meant a conflict in `$PATH` and no route into the AUR. The command,
+  crate, Arch package, desktop entry and repository are now `ma-tui`, the
+  Flatpak application ID is `io.github.brdweb.MaTui`, settings live in
+  `ma-tui/config.toml` and the token override is `MA_TUI_TOKEN`. Every earlier
+  name is still read where one exists — `local-matui` and `matui` config
+  directories and keyring entries, and the `LOCAL_MATUI_TOKEN` and `MATUI_TOKEN`
+  overrides — so an existing installation keeps working without re-entering
+  credentials. Nothing is copied, moved or deleted, and your saved `player_id`
+  and `player_name` are untouched, so Music Assistant sees the same speaker.
+
 ## 0.1.0-beta.2 — 2026-09-08
 
 - Rename the project to **local-matui** to avoid clashing with other projects:

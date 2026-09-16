@@ -1,26 +1,26 @@
 # Beta package wrapping the verified release executable.
 # Generated checksums and glibc requirement come from stage.py.
-pkgname=local-matui
+pkgname=ma-tui
 pkgver=@PKGVER@
 pkgrel=1
 pkgdesc='Terminal controller and embedded Sendspin player for Music Assistant (beta)'
-url='https://github.com/brdweb/local-matui'
+url='https://github.com/brdweb/ma-tui'
 arch=('x86_64')
 license=('MIT')
 depends=('glibc>=@GLIBC@' 'gcc-libs' 'alsa-lib' 'ca-certificates' 'libsecret')
 optdepends=('pipewire-alsa: route ALSA output through PipeWire on Omarchy'
             'gnome-keyring: desktop Secret Service for saved logins')
 options=('!strip' '!debug')
-source=('local-matui' 'local-matui.desktop' 'README.md' 'INSTALL.txt' 'THIRD-PARTY-NOTICES.tar.gz' 'DEVELOPMENT-STATUS' 'LICENSE')
+source=('ma-tui' 'ma-tui.desktop' 'README.md' 'INSTALL.txt' 'THIRD-PARTY-NOTICES.tar.gz' 'DEVELOPMENT-STATUS' 'LICENSE')
 sha256sums=(@SHA256SUMS@)
 
 package() {
-    install -Dm644 "$srcdir/LICENSE" "$pkgdir/usr/share/licenses/local-matui/LICENSE"
-    install -Dm755 "$srcdir/local-matui" "$pkgdir/usr/bin/local-matui"
-    install -Dm644 "$srcdir/local-matui.desktop" "$pkgdir/usr/share/applications/local-matui.desktop"
-    install -Dm644 "$srcdir/README.md" "$pkgdir/usr/share/doc/local-matui/README.md"
-    install -Dm644 "$srcdir/INSTALL.txt" "$pkgdir/usr/share/doc/local-matui/INSTALL.txt"
-    install -Dm644 "$srcdir/DEVELOPMENT-STATUS" "$pkgdir/usr/share/licenses/local-matui/DEVELOPMENT-STATUS"
-    cp -r "$srcdir/third-party" "$pkgdir/usr/share/licenses/local-matui/"
-    chmod -R u=rwX,go=rX "$pkgdir/usr/share/licenses/local-matui"
+    install -Dm644 "$srcdir/LICENSE" "$pkgdir/usr/share/licenses/ma-tui/LICENSE"
+    install -Dm755 "$srcdir/ma-tui" "$pkgdir/usr/bin/ma-tui"
+    install -Dm644 "$srcdir/ma-tui.desktop" "$pkgdir/usr/share/applications/ma-tui.desktop"
+    install -Dm644 "$srcdir/README.md" "$pkgdir/usr/share/doc/ma-tui/README.md"
+    install -Dm644 "$srcdir/INSTALL.txt" "$pkgdir/usr/share/doc/ma-tui/INSTALL.txt"
+    install -Dm644 "$srcdir/DEVELOPMENT-STATUS" "$pkgdir/usr/share/licenses/ma-tui/DEVELOPMENT-STATUS"
+    cp -r "$srcdir/third-party" "$pkgdir/usr/share/licenses/ma-tui/"
+    chmod -R u=rwX,go=rX "$pkgdir/usr/share/licenses/ma-tui"
 }

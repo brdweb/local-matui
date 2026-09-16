@@ -11,7 +11,7 @@ pub struct Args {
     /// Open connection/login and local speaker settings.
     #[arg(long, conflicts_with_all = ["demo", "init", "list_devices"])]
     pub setup: bool,
-    /// Non-secret configuration file (default: $XDG_CONFIG_HOME/local-matui/config.toml).
+    /// Non-secret configuration file (default: $XDG_CONFIG_HOME/ma-tui/config.toml).
     #[arg(long)]
     pub config: Option<std::path::PathBuf>,
     /// Create a new configuration with a persistent player ID; never overwrite.
@@ -32,12 +32,16 @@ pub struct Args {
     /// List local audio devices and exit without connecting to Music Assistant.
     #[arg(long)]
     pub list_devices: bool,
+    /// Print what this terminal reports about album art, and a test image, then
+    /// exit. Nothing is fetched and no server is contacted.
+    #[arg(long)]
+    pub check_art: bool,
 }
 
 /// Configuration directory under the current name.
-const DIRECTORY: &str = "local-matui";
-/// Directory used before the rename; read, never created.
-const LEGACY_DIRECTORY: &str = "matui";
+const DIRECTORY: &str = "ma-tui";
+/// Directories used before each rename, newest first. Read, never created.
+const LEGACY_DIRECTORIES: &[&str] = &["local-matui", "matui"];
 
 /// Resolve the configuration file, honouring an explicit `--config` path.
 pub fn config_path(explicit: Option<std::path::PathBuf>) -> Result<std::path::PathBuf> {
@@ -59,12 +63,14 @@ pub fn config_path(explicit: Option<std::path::PathBuf>) -> Result<std::path::Pa
 /// exists. Nothing is copied or removed: moving the file switches directories.
 pub fn config_in(base: &Path) -> std::path::PathBuf {
     let path = base.join(DIRECTORY).join("config.toml");
-    let legacy = base.join(LEGACY_DIRECTORY).join("config.toml");
-    if !path.exists() && legacy.exists() {
-        legacy
-    } else {
-        path
+    if path.exists() {
+        return path;
     }
+    LEGACY_DIRECTORIES
+        .iter()
+        .map(|legacy| base.join(legacy).join("config.toml"))
+        .find(|legacy| legacy.exists())
+        .unwrap_or(path)
 }
 
 pub fn initialize(path: &Path) -> Result<()> {

@@ -356,7 +356,7 @@ where
         delay: 0,
     };
     let worker = std::thread::Builder::new()
-        .name("local-matui-audio".into())
+        .name("ma-tui-audio".into())
         .spawn(move || {
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 let mut output = match factory() {
