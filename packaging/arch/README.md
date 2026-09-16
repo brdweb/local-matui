@@ -1,4 +1,4 @@
-# Private Omarchy / Arch beta package
+# Omarchy / Arch package
 
 This wraps the tested Linux x86-64 release executable with Arch's real `makepkg`.
 It is not a source rebuild on Arch, AUR submission, signed release or deployment.
@@ -23,11 +23,19 @@ derives the glibc symbol requirement with readelf, and generates source checksum
 It gathers shipped license/notice files and source links for the locked Linux
 Cargo metadata graph (including build dependencies), plus Rust runtime notices.
 It fails when any dependency has no license files. Registry sources are unmodified.
-The dasp_sample 0.11.0 crate omits its repository-level license files; the supplied
-copies are from the exact published crate's recorded commit:
+Some crates omit their repository-level license files. The supplied copies are
+taken from each published crate's own recorded commit, read from the
+`.cargo_vcs_info.json` in its registry source, not from a branch:
 
-- https://raw.githubusercontent.com/RustAudio/dasp/97c3bb9b2363c0b46ac1633858bf1054fd02a980/LICENSE-MIT
-- https://raw.githubusercontent.com/RustAudio/dasp/97c3bb9b2363c0b46ac1633858bf1054fd02a980/LICENSE-APACHE
+- dasp_sample 0.11.0 (MIT/Apache-2.0)
+  - https://raw.githubusercontent.com/RustAudio/dasp/97c3bb9b2363c0b46ac1633858bf1054fd02a980/LICENSE-MIT
+  - https://raw.githubusercontent.com/RustAudio/dasp/97c3bb9b2363c0b46ac1633858bf1054fd02a980/LICENSE-APACHE
+- ratatui-termina 0.1.0 (MIT)
+  - https://raw.githubusercontent.com/ratatui/ratatui/e665c36cb14752a61cd777fbd06dbef8474f2add/LICENSE
+- vtparse 0.6.2 (MIT)
+  - https://raw.githubusercontent.com/wezterm/wezterm/edeae72b5fc55c7fa4aa1d08bbefd08c5493f757/LICENSE.md
+- wezterm-input-types 0.1.0 (MIT)
+  - https://raw.githubusercontent.com/wezterm/wezterm/d5ca5509b95edc31291ba29bd1fcbf3f0b12c92d/LICENSE.md
 
 The container installs build/test dependencies only within the disposable container,
 builds as a non-root user, then installs the package with normal dependency and
@@ -48,8 +56,8 @@ the base image alone does not make that update or the binary build reproducible.
 `.BUILDINFO` describes the wrapping environment, not the original Rust compiler
 host. `Cargo.lock` and the generated PKGBUILD source checksum identify the inputs.
 
-The result is named in `.tools/arch-package/PACKAGE-NAME`; for this beta it is
-`ma-tui-0.1.0beta.2-1-x86_64.pkg.tar.zst`. Version, glibc requirement and install
+The result is named in `.tools/arch-package/PACKAGE-NAME`; for this release it is
+`ma-tui-0.9.0-1-x86_64.pkg.tar.zst`. Version, glibc requirement and install
 instructions are derived from the manifest and built executable. The desktop
 launcher is included and validated during package installation.
 Copy only a successfully verified package into ignored `dist/`, and create its

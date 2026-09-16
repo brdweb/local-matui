@@ -1,4 +1,4 @@
-MA-TUI @VERSION@ — Omarchy / Arch Linux x86-64 beta
+MA-TUI @VERSION@ — Omarchy / Arch Linux x86-64
 
 Install on your LOCAL Omarchy computer, not inside the SSH session:
 
@@ -53,4 +53,5 @@ The executable was compiled on the development host and wrapped using Arch
 makepkg. It is not an Arch source rebuild or an official repository/AUR package.
 Live local and remote playback on Music Assistant 2.10.2 is confirmed on the
 development laptop. Other hardware, prolonged playback, server restart during
-streaming, codec/format transitions and multi-room sync remain beta test areas.
+streaming, codec/format transitions and multi-room sync are not covered by the
+testing behind this release.

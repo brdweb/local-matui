@@ -1,12 +1,12 @@
-# Beta releases
+# Releases
 
-Releases require explicit user authorization. The current beta is
-`v0.1.0-beta.2`, published as local-matui before the rename to ma-tui.
-`v0.1.0-beta.1` was
-published under the former name and withdrawn the same day; its tag and assets
-were deleted rather than rewritten. MA-TUI is MIT licensed; include the
-root LICENSE in all new packages alongside third-party notices.
-A beta tag must not be labeled as a stable/latest release.
+Releases require explicit user authorization. The current release is `v0.9.0`,
+the first as ma-tui and the first that is not a beta. `v0.1.0-beta.2` was
+published as local-matui before the rename, and `v0.1.0-beta.1` under that same
+former name and withdrawn the same day; its tag and assets were deleted rather
+than rewritten. MA-TUI is MIT licensed; include the root LICENSE in all new
+packages alongside third-party notices. A prerelease tag must not be labeled as
+a stable/latest release; a release that is one may be.
 
 1. Update Cargo.toml/Cargo.lock and CHANGELOG.md on the feature branch. Run
    `cargo fmt --check`, `cargo clippy --all-targets --locked -- -D warnings`,
@@ -25,8 +25,9 @@ A beta tag must not be labeled as a stable/latest release.
    main checkout for `cargo build --release --locked` and
    `python3 packaging/release.py`. The bundler checks binary/package identity.
 5. Create and push an annotated `v<version>` tag at that main commit. Create a
-   GitHub draft prerelease with `--verify-tag --prerelease --latest=false`, upload
-   only the versioned dist directory's six assets, and publish it once complete.
+   GitHub draft release with `--verify-tag`, adding `--prerelease --latest=false`
+   for a beta and neither for a release that is not one. Upload only the
+   versioned dist directory's six assets, and publish it once complete.
 6. Download the hosted assets into a fresh directory, verify SHA256SUMS and the
    embedded executable version/hash, and confirm the tag, source commit, intended
    repository visibility and prerelease flag. Never claim signing or reproducible builds
@@ -37,9 +38,37 @@ BUILDINFO.json and SHA256SUMS. The binary archives include third-party notices
 from the locked Cargo graph and Rust runtime. Personal configuration, tokens,
 keyring data, media and `.tools/` must never enter release assets.
 
-The Arch version removes Cargo's prerelease hyphen (`0.1.0beta.2`); `vercmp`
-confirms it sorts before stable `0.1.0`. The package is unsigned and no AUR or
-distribution-repository publication is implied. No service is deployed.
+The Arch version removes Cargo's prerelease hyphen, which a release without one
+does not have: `0.9.0` is used as is. The package is unsigned and no AUR or
+distribution-repository publication is implied. No service is deployed. The
+Flatpak application branch is `stable`; it was `beta` while the releases were,
+and a ref is not upgraded across branches.
+
+## 0.9.0 validation (2026-09-16)
+
+Rust formatting, strict Clippy and all ordinary test targets passed (108 tests).
+All five native terminal fixture runs passed. The Arch package passed
+installation, integrity, desktop and license validation, startup, device
+enumeration, PTY/controller fixtures and removal in a disposable Arch container.
+The installed Flatpak passed binary/helper identity, demo/device enumeration,
+native-config isolation, host theme identity, a real Secret Service round trip,
+quit/SIGTERM terminal restoration, the connected controller fixture and the
+silent real default-output test.
+
+Three crates entered the graph with no license file of their own —
+ratatui-termina, vtparse and wezterm-input-types, all MIT. Copies were taken
+from each published crate's own recorded commit, read from its
+`.cargo_vcs_info.json`, and their provenance is listed in
+`packaging/arch/README.md`. The staging script fails on a dependency with no
+license files, which is how they were found.
+
+Live verification during development covered the event stream, podcast browsing
+and progress, album art as sixel in foot, and local playback against Music
+Assistant 2.10.2 on the development laptop. Acoustic latency, multi-room
+synchronization, prolonged playback, broader codec and hardware coverage and
+live server-restart recovery were not tested for this release. The sixel encoder
+was checked against the specification and by eye in foot, not against other
+terminals claiming sixel support.
 
 ## First beta validation (2026-09-08)
 
