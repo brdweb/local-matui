@@ -1,6 +1,19 @@
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 
+/// How the spectrum is drawn.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Spectrum {
+    /// Braille cells carry 2x4 dots each, so the bars resolve four times finer
+    /// than the character grid allows. Needs a font covering U+2800-28FF, which
+    /// every Nerd Font and most monospace fonts do.
+    #[default]
+    Braille,
+    /// Eighth-height blocks: coarser, but drawn with characters every font has.
+    Blocks,
+}
+
 /// Non-secret settings. Access tokens are read separately from LOCAL_MATUI_TOKEN.
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
@@ -12,6 +25,10 @@ pub struct Config {
     pub device_id: Option<String>,
     pub local_playback: bool,
     pub volume: u8,
+    /// Switch to `blocks` if the terminal font has no braille glyphs.
+    pub spectrum: Spectrum,
+    /// Show album art, where the terminal and the server can both supply it.
+    pub album_art: bool,
 }
 
 impl Default for Config {
@@ -23,6 +40,8 @@ impl Default for Config {
             device_id: None,
             local_playback: false,
             volume: 30,
+            spectrum: Spectrum::default(),
+            album_art: true,
         }
     }
 }

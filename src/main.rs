@@ -170,6 +170,7 @@ async fn main() -> Result<()> {
                 // Only real device output produces samples; a remote speaker
                 // never routes audio through this machine.
                 spectrum: audio.as_ref().map(|_| spectrum.clone()),
+                spectrum_style: config.spectrum,
                 local_endpoint: local_id.map(str::to_owned),
                 ..App::default()
             },

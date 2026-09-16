@@ -100,10 +100,15 @@ pub fn run(
             app.tick = step;
             dirty |= app.scrolling;
         }
-        // The visualizer is the only view that animates on its own; it is worth
-        // redrawing at about 60 per second while it is open, and no more otherwise.
-        let animating = app.visualizer.mode != crate::visualizer::Mode::Off;
+        // The spectrum animates from the audio rather than from state changes,
+        // whether it is the full-screen view or the strip inside the player, so
+        // it earns frames of its own at about 60 per second. Everything else
+        // still costs nothing when nothing has changed. `app.animating` is set
+        // by the previous draw, so the first frame that shows bars comes from
+        // `dirty` and every frame after it from this.
+        let animating = app.visualizer.mode != crate::visualizer::Mode::Off || app.animating;
         if dirty || animating {
+            app.animating = false;
             terminal.draw(|frame| ui::draw(frame, &mut app))?;
             dirty = false;
         }
