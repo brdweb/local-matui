@@ -297,7 +297,7 @@ need further testing.
 Bug reports and focused pull requests are welcome. Include the MA-TUI and Music
 Assistant versions, Linux distribution, installation method and steps to reproduce.
 Do not include tokens, passwords, private server addresses or personal media data.
-For code changes, follow [AGENTS.md](AGENTS.md) and run the checks above.
+For code changes, run the checks above before opening a pull request.
 
 ## License
 
