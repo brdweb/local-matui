@@ -625,10 +625,6 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         );
         return;
     }
-    if app.visualizer.mode == crate::visualizer::Mode::Full {
-        draw_visualizer(frame, app, area);
-        return;
-    }
     app.scrolling = false;
     app.artwork_area = None;
     // Chrome is two header rows, the player, two for status and two for hints;
@@ -1184,86 +1180,6 @@ fn ruler(app: &App, width: u16, empty: bool) -> String {
     crate::visualizer::scale(width, rate, app.spectrum_style)
 }
 
-/// The whole terminal: bars over a compact now-playing line.
-fn draw_visualizer(frame: &mut Frame, app: &mut App, area: Rect) {
-    let palette = app.palette;
-    let rows = Layout::vertical([
-        Constraint::Min(3),
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Length(1),
-    ])
-    .split(area);
-    let reason = spectrum(app, rows[0].width);
-    crate::visualizer::render(
-        frame,
-        rows[0],
-        palette,
-        &app.visualizer,
-        reason.as_deref(),
-        app.spectrum_style,
-    );
-    frame.render_widget(
-        Paragraph::new(ruler(app, rows[1].width, reason.is_some()))
-            .style(Style::default().fg(palette.secondary)),
-        rows[1],
-    );
-    let state = app
-        .players
-        .iter()
-        .find(|p| Some(&p.id) == app.selected_id.as_ref());
-    let head = Layout::horizontal([Constraint::Min(10), Constraint::Length(16)]).split(rows[2]);
-    frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled(
-                format!(" {} ", transport(state.map_or("", |p| p.state.as_str()))),
-                Style::default().fg(palette.accent),
-            ),
-            Span::styled(
-                app.title.clone(),
-                Style::default().add_modifier(Modifier::BOLD),
-            ),
-        ])),
-        head[0],
-    );
-    frame.render_widget(
-        Paragraph::new(format!(
-            "{} / {} ",
-            duration(app.elapsed),
-            duration(app.duration)
-        ))
-        .alignment(ratatui::layout::Alignment::Right),
-        head[1],
-    );
-    frame.render_widget(
-        Paragraph::new(format!(
-            "   {}{}",
-            app.artist,
-            state
-                .and_then(|p| p.volume)
-                .map_or(String::new(), |v| format!("  ·  vol {v}%"))
-        ))
-        .style(Style::default().fg(palette.secondary)),
-        rows[3],
-    );
-    frame.render_widget(
-        Gauge::default()
-            .ratio(progress(app))
-            .gauge_style(Style::default().fg(palette.accent).bg(palette.selection))
-            .label(""),
-        rows[4],
-    );
-    frame.render_widget(
-        Paragraph::new(
-            "v panel · Esc close · Space/p pause · </> track · +/- vol · z shuffle · ? all keys",
-        )
-        .style(Style::default().fg(palette.secondary)),
-        rows[5],
-    );
-}
-
 /// A horizontal rule separating one band of the interface from the next.
 fn rule(frame: &mut Frame, area: Rect, palette: Palette) {
     if area.height == 0 {
@@ -1302,15 +1218,21 @@ pub(crate) fn heading(
     active: bool,
 ) -> Rect {
     let rows = Layout::vertical([Constraint::Length(1), Constraint::Min(0)]).split(area);
+    // A cell grid has one type size, so the focused pane is marked by filling
+    // its heading rather than enlarging it: a bar of colour is findable at a
+    // glance in a way a colour change alone is not.
+    let style = if active {
+        Style::default()
+            .fg(palette.background)
+            .bg(palette.accent)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+            .fg(palette.secondary)
+            .add_modifier(Modifier::BOLD)
+    };
     frame.render_widget(
-        Paragraph::new(Line::styled(
-            label.to_owned(),
-            Style::default().fg(if active {
-                palette.accent
-            } else {
-                palette.secondary
-            }),
-        )),
+        Paragraph::new(Line::styled(format!(" {label} "), style)),
         rows[0],
     );
     rows[1]

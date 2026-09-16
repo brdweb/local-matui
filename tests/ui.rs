@@ -143,7 +143,12 @@ fn the_visualizer_opens_only_with_local_audio_and_closes_with_esc() {
     app.key(key(KeyCode::Char('v')));
     assert_eq!(app.visualizer.mode, Mode::Panel);
     app.key(key(KeyCode::Char('v')));
-    assert_eq!(app.visualizer.mode, Mode::Full);
+    assert_eq!(
+        app.visualizer.mode,
+        Mode::Off,
+        "v toggles the pane; the player's own spectrum is always there"
+    );
+    app.key(key(KeyCode::Char('v')));
     // Esc closes the visualizer before it means anything else, and never
     // doubles as a pane switch.
     let focus = app.focus;
@@ -172,7 +177,8 @@ fn both_visualizer_views_render_and_explain_a_silent_endpoint() {
         title: "Something".into(),
         ..Default::default()
     };
-    for mode in [Mode::Panel, Mode::Full] {
+    {
+        let mode = Mode::Panel;
         app.visualizer.mode = mode;
         let mut terminal =
             ratatui::Terminal::new(ratatui::backend::TestBackend::new(110, 30)).unwrap();
@@ -541,4 +547,57 @@ fn the_transport_row_reads_out_state_and_draws_no_buttons() {
             "{button} is not pressable, so it is not drawn"
         );
     }
+}
+
+/// The focused pane is findable at a glance: a cell grid has one type size, so
+/// the heading is filled rather than enlarged.
+#[test]
+fn the_focused_pane_heading_is_filled_and_the_others_are_not() {
+    let palette = ma_tui::theme::Palette::default();
+    let heading_style = |focus: ui::Focus, label: &str| {
+        let mut app = ui::App {
+            connected: true,
+            focus,
+            content: ui::Focus::Music,
+            ..Default::default()
+        };
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(110, 30)).unwrap();
+        terminal.draw(|frame| ui::draw(frame, &mut app)).unwrap();
+        let buffer = terminal.backend().buffer().clone();
+        // Scan by cell, not by byte: a cell's symbol can be several bytes, so
+        // a string index into the rendered text is not a cell index.
+        let cells: Vec<&str> = buffer.content.iter().map(|cell| cell.symbol()).collect();
+        let wanted: Vec<String> = label.chars().map(|c| c.to_string()).collect();
+        let at = (0..cells.len())
+            .find(|start| {
+                wanted
+                    .iter()
+                    .enumerate()
+                    .all(|(offset, want)| cells.get(start + offset) == Some(&want.as_str()))
+            })
+            .expect("heading is on screen");
+        let cell = &buffer.content[at];
+        (cell.bg, cell.modifier)
+    };
+
+    let (focused_bg, focused_modifier) = heading_style(ui::Focus::Players, "PLAYERS");
+    assert_eq!(
+        focused_bg, palette.accent,
+        "the focused heading is filled with the accent"
+    );
+    assert!(
+        focused_modifier.contains(ratatui::style::Modifier::BOLD),
+        "and is bold"
+    );
+
+    let (resting_bg, resting_modifier) = heading_style(ui::Focus::Music, "PLAYERS");
+    assert_ne!(
+        resting_bg, palette.accent,
+        "a pane that is not focused is not filled"
+    );
+    assert!(
+        resting_modifier.contains(ratatui::style::Modifier::BOLD),
+        "every heading stays bold, so they read as headings"
+    );
 }

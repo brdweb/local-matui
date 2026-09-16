@@ -325,8 +325,11 @@ fn the_frequency_ruler_lines_up_with_the_bars_it_labels() {
 fn modes_cycle_through_panel_and_full_screen() {
     assert_eq!(Mode::default(), Mode::Off);
     assert_eq!(Mode::Off.next(), Mode::Panel);
-    assert_eq!(Mode::Panel.next(), Mode::Full);
-    assert_eq!(Mode::Full.next(), Mode::Off);
+    assert_eq!(
+        Mode::Panel.next(),
+        Mode::Off,
+        "the player carries a spectrum of its own, so there is no full-screen view"
+    );
 }
 
 /// Prints both views with a generated signal:
@@ -374,7 +377,8 @@ fn preview() {
         status: "Preview".into(),
         ..Default::default()
     };
-    for mode in [Mode::Panel, Mode::Full] {
+    {
+        let mode = Mode::Panel;
         app.visualizer.mode = mode;
         let mut terminal =
             ratatui::Terminal::new(ratatui::backend::TestBackend::new(110, 30)).unwrap();
