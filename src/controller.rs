@@ -40,14 +40,40 @@ pub struct Controller {
     task: JoinHandle<()>,
 }
 
+/// One in-flight read, cancelled when a newer one supersedes it or the
+/// controller stops, so an abandoned request does not hold a connection open.
+#[derive(Default)]
+struct Pending(Option<JoinHandle<()>>);
+
+impl Pending {
+    fn replace(&mut self, task: JoinHandle<()>) {
+        if let Some(previous) = self.0.replace(task) {
+            previous.abort();
+        }
+    }
+}
+
+impl Drop for Pending {
+    fn drop(&mut self) {
+        if let Some(task) = self.0.take() {
+            task.abort();
+        }
+    }
+}
+
 impl Controller {
     pub fn start(api: ApiClient) -> Self {
         let (selection, mut selected) = watch::channel::<Option<String>>(None);
-        let (requests, mut commands) = mpsc::channel::<Request>(8);
+        let (requests, mut commands) = mpsc::channel::<Request>(32);
         let (tx, updates) = mpsc::channel(16);
         let task = tokio::spawn(async move {
             let mut interval = tokio::time::interval(Duration::from_secs(2));
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            // Reading the library must never delay a transport key, so browse
+            // and search run beside this loop. Only the newest of each matters:
+            // the interface discards stale replies by generation, so a superseded
+            // request is cancelled rather than left to finish unread.
+            let (mut browsing, mut searching) = (Pending::default(), Pending::default());
             loop {
                 tokio::select! {
                     _ = interval.tick() => {},
@@ -59,13 +85,19 @@ impl Controller {
                             continue;
                         }
                         if let Action::Search(query) = command.action {
-                            let result = api.search(&query).await.map_err(|e|e.to_string());
-                            if tx.send(Update::Search(query,result)).await.is_err() { break; }
+                            let (api, tx) = (api.clone(), tx.clone());
+                            searching.replace(tokio::spawn(async move {
+                                let result = api.search(&query).await.map_err(|e|e.to_string());
+                                let _ = tx.send(Update::Search(query,result)).await;
+                            }));
                             continue;
                         }
                         if let Action::Browse {generation, target} = command.action {
-                            let result = api.browse(&target).await.map_err(|e|e.to_string());
-                            if tx.send(Update::Browse(generation,result)).await.is_err() { break; }
+                            let (api, tx) = (api.clone(), tx.clone());
+                            browsing.replace(tokio::spawn(async move {
+                                let result = api.browse(&target).await.map_err(|e|e.to_string());
+                                let _ = tx.send(Update::Browse(generation,result)).await;
+                            }));
                             continue;
                         }
                         if !matches!(command.action, Action::Refresh) {
@@ -78,7 +110,17 @@ impl Controller {
                         }
                     }
                 }
-                let players = match api.players().await {
+                // The player list and the selected queue are independent reads,
+                // so they cost one round trip together rather than two in turn.
+                let id = selected.borrow().clone();
+                let (players, queue) = match &id {
+                    Some(id) => {
+                        let (players, queue) = tokio::join!(api.players(), api.queue(id));
+                        (players, Some(queue.map_err(|e| e.to_string())))
+                    }
+                    None => (api.players().await, None),
+                };
+                let players = match players {
                     Ok(players) => players,
                     Err(err) => {
                         if tx.send(Update::Offline(err.to_string())).await.is_err() {
@@ -90,9 +132,7 @@ impl Controller {
                 if tx.send(Update::Players(players)).await.is_err() {
                     break;
                 }
-                let id = selected.borrow().clone();
-                if let Some(id) = id {
-                    let queue = api.queue(&id).await.map_err(|e| e.to_string());
+                if let (Some(id), Some(queue)) = (id, queue) {
                     if tx.send(Update::Queue(id, queue)).await.is_err() {
                         break;
                     }

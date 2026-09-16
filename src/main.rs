@@ -60,7 +60,7 @@ async fn main() -> Result<()> {
     if args.demo {
         return local_matui::terminal_ui::run(
             demo(),
-            |_| {},
+            |_| false,
             |app, action| {
                 if let ui::Action::Search(query) = action {
                     app.results = app
@@ -167,19 +167,26 @@ async fn main() -> Result<()> {
                 ..App::default()
             },
             |app| {
+                let mut changed = false;
                 while let Ok(update) = controller.updates.try_recv() {
                     local_matui::presentation::apply(app, update);
+                    changed = true;
                 }
                 if let Some(endpoint) = local_id {
                     if let Some(id) = local_matui::presentation::select_local(app, endpoint) {
                         let _ = selection.send(Some(id));
+                        changed = true;
                     }
                 }
                 if let Some(status) = &audio_status {
                     let status = status.borrow();
-                    app.audio_status =
-                        format!("Local audio · {} · {}", status.state, status.detail);
+                    let line = format!("Local audio · {} · {}", status.state, status.detail);
+                    if line != app.audio_status {
+                        app.audio_status = line;
+                        changed = true;
+                    }
                 }
+                changed
             },
             |app, action| {
                 if let ui::Action::Select(id) = action {

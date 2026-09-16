@@ -26,9 +26,13 @@ impl Drop for Restore {
 }
 
 /// Blocking rendering loop. Network/audio run on separate runtime workers.
+///
+/// `tick` reports whether it changed anything on screen, so a still interface
+/// costs no redraw at all: rebuilding every list row many times a second is not
+/// free even though Ratatui only writes the cells that differ.
 pub fn run(
     mut app: App,
-    mut tick: impl FnMut(&mut App),
+    mut tick: impl FnMut(&mut App) -> bool,
     mut dispatch: impl FnMut(&mut App, Action),
 ) -> Result<Action> {
     if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
@@ -70,28 +74,49 @@ pub fn run(
     crate::theme::reload(&mut app.palette, &theme_paths);
     let mut theme_check = std::time::Instant::now();
     let mut outcome = Action::Quit;
+    let mut dirty = true;
     while !quit.load(std::sync::atomic::Ordering::Acquire) {
-        tick(&mut app);
+        dirty |= tick(&mut app);
         if app.exit {
             break;
         }
+        // Snapshots are seconds apart; the position on screen moves between
+        // them, but only a whole second changes anything a viewer can see.
+        let second = app.elapsed as u64;
+        app.advance(std::time::Instant::now());
+        dirty |= app.elapsed as u64 != second;
         if theme_check.elapsed() >= Duration::from_millis(500) {
+            let previous = app.palette;
             crate::theme::reload(&mut app.palette, &theme_paths);
+            dirty |= app.palette != previous;
             theme_check = std::time::Instant::now();
         }
-        terminal.draw(|frame| ui::draw(frame, &mut app))?;
-        // The visualizer is the only view that animates; it is worth redrawing
-        // at about 60 per second while it is open, and no more otherwise.
-        let interval = if app.visualizer.mode == crate::visualizer::Mode::Off {
-            Duration::from_millis(50)
-        } else {
+        // The visualizer is the only view that animates on its own; it is worth
+        // redrawing at about 60 per second while it is open, and no more otherwise.
+        let animating = app.visualizer.mode != crate::visualizer::Mode::Off;
+        if dirty || animating {
+            terminal.draw(|frame| ui::draw(frame, &mut app))?;
+            dirty = false;
+        }
+        let interval = if animating {
             Duration::from_millis(16)
+        } else {
+            Duration::from_millis(50)
         };
         if event::poll(interval)? {
             let action = match event::read()? {
-                event::Event::Key(key) => app.key(key),
+                event::Event::Key(key) => {
+                    dirty = true;
+                    app.key(key)
+                }
                 event::Event::Paste(text) => {
+                    dirty = true;
                     app.paste(&text);
+                    Action::None
+                }
+                // A resize invalidates the whole frame, not just what changed.
+                event::Event::Resize(..) => {
+                    dirty = true;
                     Action::None
                 }
                 _ => Action::None,

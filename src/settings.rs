@@ -208,19 +208,21 @@ pub fn run(
             ..App::default()
         },
         |app| {
-            if let Ok(result) = rx.try_recv() {
-                match result {
-                    Ok(connection) => {
-                        completed = Some(connection);
-                        app.exit = true;
-                    }
-                    Err(message) => {
-                        let s = app.settings.as_mut().unwrap();
-                        s.busy = false;
-                        s.message = message;
-                    }
+            let Ok(result) = rx.try_recv() else {
+                return false;
+            };
+            match result {
+                Ok(connection) => {
+                    completed = Some(connection);
+                    app.exit = true;
+                }
+                Err(message) => {
+                    let s = app.settings.as_mut().unwrap();
+                    s.busy = false;
+                    s.message = message;
                 }
             }
+            true
         },
         |app, action| {
             if action != Action::SaveSettings {
