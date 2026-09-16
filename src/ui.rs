@@ -502,6 +502,8 @@ pub struct App {
     pub query: String,
     pub demo: bool,
     pub connected: bool,
+    /// Whether the server is pushing changes rather than being asked for them.
+    pub live: bool,
 }
 
 impl Default for App {
@@ -537,6 +539,7 @@ impl Default for App {
             query: String::new(),
             demo: false,
             connected: false,
+            live: false,
         }
     }
 }
@@ -587,6 +590,14 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     } else {
         "MUSIC ASSISTANT · LOCAL + REMOTE"
     };
+    // Say which way state is arriving, so a stream that quietly fell back to
+    // polling is visible rather than indistinguishable.
+    let feed = match (app.demo, app.connected, app.live) {
+        (true, ..) => String::new(),
+        (_, true, true) => "  ·  live".into(),
+        (_, true, false) => "  ·  polling".into(),
+        _ => String::new(),
+    };
     frame.render_widget(
         Paragraph::new(Line::from(vec![
             Span::styled(
@@ -597,6 +608,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
                     .add_modifier(Modifier::BOLD),
             ),
             Span::raw(format!("  {mode}")),
+            Span::styled(feed, Style::default().fg(palette.secondary)),
         ]))
         .block(
             Block::default()
