@@ -208,6 +208,14 @@ open into anything: 2.10.2 has no chapter model at all, only
 `audiobook_versions`, so an audiobook is one playable item with a resume point.
 Do not build a chapter listing against this server version.
 
+There is no server-side filter for unplayed episodes: `library_items` takes
+`played_only`, which selects the opposite, and has no unplayed equivalent. The
+unplayed list is therefore assembled here — the shows are listed, then each is
+asked for its episodes and filtered — which is one request per subscription.
+They overlap a few at a time rather than running in a loop, because the server
+answering them is the one also serving the audio, and the result is capped so a
+large subscription list cannot become an unbounded read.
+
 `music/mark_played` and `music/mark_unplayed` take the item itself rather than a
 URI, so `Media` keeps `item_id` and `provider` and hands back the four fields
 `ItemMapping` requires. Marking is a library edit and deliberately needs no
@@ -258,10 +266,14 @@ The id goes into a URL path, so it is validated as alphanumeric rather than
 trusted.
 
 Covers draw as sixel where the terminal will take it and as half blocks
-everywhere else. `album_art` selects between them; `auto` guesses from the
-terminal's own name and whether it reports a pixel cell size, because sixel
-support cannot be read off either and asking the terminal directly means a
-handshake in the middle of the input stream. foot draws sixel; Alacritty has no
+everywhere else. `album_art` selects between them; `auto` asks the terminal, with
+Primary Device Attributes, which lists 4 when sixel is supported. TERM does not
+answer the question and guessing from it was wrong: foot draws sixel and is
+commonly configured to report `xterm-256color`, which is also what a terminal
+that cannot draw sixel reports. The reply is read once, before the interface
+starts, so it cannot be mistaken for a keystroke. A multiplexer short-circuits
+the question: tmux and zellij sit between this program and the terminal drawing
+the pixels and mostly do not forward them. foot draws sixel; Alacritty has no
 image protocol at all.
 
 Sixel writes pixels the cell renderer knows nothing about, so it is emitted
