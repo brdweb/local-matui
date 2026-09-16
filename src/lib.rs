@@ -6,6 +6,7 @@ pub mod config;
 pub mod controller;
 pub mod controls;
 pub mod credentials;
+pub mod events;
 pub mod music;
 pub mod presentation;
 pub mod settings;

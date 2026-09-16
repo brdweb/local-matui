@@ -126,6 +126,11 @@ pub fn apply(app: &mut App, event: Update) {
                 app.status = error;
             }
         },
+        // The server's own clock, for the queue currently on screen.
+        Update::Elapsed(queue_id, seconds) if app.queue_id == queue_id => {
+            app.elapsed = seconds;
+            app.elapsed_at = Some(std::time::Instant::now());
+        }
         Update::Offline(error) => {
             app.connected = false;
             app.status = format!("Disconnected · data stale · retrying: {error}");

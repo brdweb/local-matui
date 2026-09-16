@@ -1,4 +1,5 @@
 use crate::api::{ApiClient, Control, Player, Queue, Track};
+use crate::events::Event;
 use crate::ui::Action;
 use std::time::Duration;
 use tokio::{
@@ -9,6 +10,8 @@ use tokio::{
 pub enum Update {
     Players(Vec<Player>),
     Queue(String, Result<Queue, String>),
+    /// Playback position for a queue, straight from the event stream.
+    Elapsed(String, f64),
     Offline(String),
     Search(String, Result<Vec<Track>, String>),
     Browse(
@@ -61,23 +64,102 @@ impl Drop for Pending {
     }
 }
 
+/// How often to re-ask when the server is not telling us about changes, and
+/// how often when it is. The live interval only catches a missed event or a
+/// socket that died without saying so.
+const POLL: Duration = Duration::from_secs(2);
+const POLL_LIVE: Duration = Duration::from_secs(30);
+
+/// Which reads the next pass owes. An event names what went stale rather than
+/// forcing the whole snapshot to be re-read.
+#[derive(Default, Clone, Copy)]
+struct Stale {
+    players: bool,
+    queue: bool,
+}
+
+impl Stale {
+    fn all() -> Self {
+        Self {
+            players: true,
+            queue: true,
+        }
+    }
+    fn any(self) -> bool {
+        self.players || self.queue
+    }
+}
+
+/// The event stream's next message, or never when there is no stream.
+async fn next_event(events: &mut Option<mpsc::Receiver<Event>>) -> Option<Event> {
+    match events {
+        Some(rx) => rx.recv().await,
+        None => std::future::pending().await,
+    }
+}
+
 impl Controller {
-    pub fn start(api: ApiClient) -> Self {
+    pub fn start(api: ApiClient, events: Option<mpsc::Receiver<Event>>) -> Self {
         let (selection, mut selected) = watch::channel::<Option<String>>(None);
         let (requests, mut commands) = mpsc::channel::<Request>(32);
         let (tx, updates) = mpsc::channel(16);
         let task = tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(2));
+            let mut events = events;
+            let mut interval =
+                tokio::time::interval(if events.is_some() { POLL_LIVE } else { POLL });
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            // The queue the last read was about, so an event for some other
+            // player's queue costs nothing.
+            let mut current: Option<String> = None;
             // Reading the library must never delay a transport key, so browse
             // and search run beside this loop. Only the newest of each matters:
             // the interface discards stale replies by generation, so a superseded
             // request is cancelled rather than left to finish unread.
             let (mut browsing, mut searching) = (Pending::default(), Pending::default());
             loop {
+                let mut stale = Stale::all();
                 tokio::select! {
                     _ = interval.tick() => {},
                     changed = selected.changed() => { if changed.is_err() { break; } },
+                    event = next_event(&mut events) => {
+                        let Some(event) = event else {
+                            // The stream gave up for good; carry on by asking.
+                            events = None;
+                            interval = tokio::time::interval(POLL);
+                            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                            continue;
+                        };
+                        stale = Stale::default();
+                        // Take everything already waiting too, so a burst of
+                        // events costs one read rather than one read each.
+                        let mut next = Some(event);
+                        while let Some(event) = next.take() {
+                            match event {
+                                Event::Players => stale.players = true,
+                                Event::Queue(id) | Event::QueueItems(id) => {
+                                    if current.as_deref() == Some(id.as_str()) { stale.queue = true; }
+                                }
+                                // The only payload read: no request needed at all.
+                                Event::Elapsed(id, seconds) => {
+                                    if current.as_deref() == Some(id.as_str())
+                                        && tx.send(Update::Elapsed(id, seconds)).await.is_err() { return; }
+                                }
+                                // Anything shown may have changed while it was down.
+                                Event::Online => {
+                                    stale = Stale::all();
+                                    interval = tokio::time::interval(POLL_LIVE);
+                                    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                                }
+                                Event::Offline => {
+                                    interval = tokio::time::interval(POLL);
+                                    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                                }
+                                Event::Playlog => {}
+                            }
+                            next = events.as_mut().and_then(|rx| rx.try_recv().ok());
+                        }
+                        if !stale.any() { continue; }
+                    },
                     command = commands.recv() => {
                         let Some(command) = command else { break; };
                         if command.issued.elapsed() > Duration::from_secs(3) && !matches!(command.action, Action::Browse {..} | Action::Search(_)) {
@@ -113,26 +195,36 @@ impl Controller {
                 // The player list and the selected queue are independent reads,
                 // so they cost one round trip together rather than two in turn.
                 let id = selected.borrow().clone();
-                let (players, queue) = match &id {
-                    Some(id) => {
+                let wants_queue = stale.queue.then_some(id.as_deref()).flatten();
+                let (players, queue) = match (stale.players, wants_queue) {
+                    (true, Some(id)) => {
                         let (players, queue) = tokio::join!(api.players(), api.queue(id));
-                        (players, Some(queue.map_err(|e| e.to_string())))
+                        (Some(players), Some(queue.map_err(|e| e.to_string())))
                     }
-                    None => (api.players().await, None),
+                    (true, None) => (Some(api.players().await), None),
+                    (false, Some(id)) => {
+                        (None, Some(api.queue(id).await.map_err(|e| e.to_string())))
+                    }
+                    (false, None) => (None, None),
                 };
-                let players = match players {
-                    Ok(players) => players,
-                    Err(err) => {
-                        if tx.send(Update::Offline(err.to_string())).await.is_err() {
-                            break;
+                if let Some(players) = players {
+                    let players = match players {
+                        Ok(players) => players,
+                        Err(err) => {
+                            if tx.send(Update::Offline(err.to_string())).await.is_err() {
+                                break;
+                            }
+                            continue;
                         }
-                        continue;
+                    };
+                    if tx.send(Update::Players(players)).await.is_err() {
+                        break;
                     }
-                };
-                if tx.send(Update::Players(players)).await.is_err() {
-                    break;
                 }
                 if let (Some(id), Some(queue)) = (id, queue) {
+                    // Remember which queue is on screen so its events are the
+                    // only ones that cost a read.
+                    current = queue.as_ref().ok().map(|q| q.id.clone());
                     if tx.send(Update::Queue(id, queue)).await.is_err() {
                         break;
                     }

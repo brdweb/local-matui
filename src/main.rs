@@ -149,7 +149,13 @@ async fn main() -> Result<()> {
         } else {
             None
         };
-        let mut controller = local_matui::controller::Controller::start(api);
+        // The server says when something changed; polling is the safety net.
+        let (events, stream) = match local_matui::events::Events::start(&config.server, token_value)
+        {
+            Ok((events, stream)) => (Some(events), Some(stream)),
+            Err(_) => (None, None),
+        };
+        let mut controller = local_matui::controller::Controller::start(api, stream);
         let requests = controller.requests.clone();
         let selection = controller.selection.clone();
         let audio_status = audio.as_ref().map(|a| a.status.clone());
@@ -223,6 +229,9 @@ async fn main() -> Result<()> {
             },
         );
         controller.shutdown().await;
+        if let Some(events) = events {
+            events.shutdown().await;
+        }
         if let Some(audio) = audio {
             audio.shutdown().await;
         }

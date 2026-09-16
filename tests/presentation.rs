@@ -101,3 +101,28 @@ fn local_selection_resolves_universal_wrapper_and_preserves_user_selection() {
         Some("local-sendspin".into())
     );
 }
+
+/// A position from the event stream belongs to one queue, not to whatever
+/// happens to be on screen.
+#[test]
+fn a_position_event_applies_only_to_the_displayed_queue() {
+    let mut app = App {
+        queue_id: "q1".into(),
+        elapsed: 5.0,
+        duration: 200.0,
+        ..Default::default()
+    };
+    apply(&mut app, Update::Elapsed("other".into(), 99.0));
+    assert_eq!(app.elapsed, 5.0, "another queue's position is not ours");
+    assert!(
+        app.elapsed_at.is_none(),
+        "and it does not re-anchor the clock"
+    );
+
+    apply(&mut app, Update::Elapsed("q1".into(), 42.0));
+    assert_eq!(app.elapsed, 42.0);
+    assert!(
+        app.elapsed_at.is_some(),
+        "the position carries on from what the server reported"
+    );
+}

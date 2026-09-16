@@ -43,7 +43,7 @@ async fn worker_returns_search_results_without_selecting_or_playing_a_player() {
             }
         }
     });
-    let mut worker = Controller::start(api);
+    let mut worker = Controller::start(api, None);
     worker
         .requests
         .send(Request::new(None, Action::Search("Found".into())))
