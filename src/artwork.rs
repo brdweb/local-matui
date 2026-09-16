@@ -129,6 +129,140 @@ impl Art {
     }
 }
 
+/// Colours per channel in the fixed palette sixel output quantizes to. A 6x6x6
+/// cube is 216 colours, enough for a cover and small enough to emit inline
+/// without the cost and complexity of building a palette per image.
+const CUBE: usize = 6;
+
+impl Art {
+    /// Encode as sixel at a pixel size, for a terminal that draws bitmaps.
+    ///
+    /// Sixel packs six vertical pixels into one character, one band at a time,
+    /// emitting each colour's pixels across the whole band before moving on.
+    /// Colours are quantized to a fixed 6x6x6 cube, so no palette has to be
+    /// derived from the image or agreed with the terminal.
+    pub fn sixel(&self, width: u16, height: u16) -> String {
+        let (width, height) = (width.max(1) as usize, height.max(1) as usize);
+        let mut out = String::with_capacity(width * height / 2);
+        // Raster attributes: 1:1 pixel aspect, and the size to reserve.
+        out.push_str(&format!("\x1bP0;1;0q\"1;1;{width};{height}"));
+        for index in 0..CUBE * CUBE * CUBE {
+            let (r, g, b) = (index / (CUBE * CUBE), (index / CUBE) % CUBE, index % CUBE);
+            // Sixel colour components are percentages, not bytes.
+            let percent = |v: usize| v * 100 / (CUBE - 1);
+            out.push_str(&format!(
+                "#{index};2;{};{};{}",
+                percent(r),
+                percent(g),
+                percent(b)
+            ));
+        }
+        // One index per pixel, resampled once rather than per band.
+        let mut cells = vec![0u16; width * height];
+        let span = |n: usize, of: usize, total: usize| {
+            (
+                n * total / of,
+                ((n + 1) * total / of).max(n * total / of + 1),
+            )
+        };
+        for y in 0..height {
+            let (y0, y1) = span(y, height, self.height);
+            for x in 0..width {
+                let (x0, x1) = span(x, width, self.width);
+                let Color::Rgb(r, g, b) = self.block(x0, y0, x1, y1) else {
+                    continue;
+                };
+                let step = |v: u8| (v as usize * (CUBE - 1) + 127) / 255;
+                cells[y * width + x] = (step(r) * CUBE * CUBE + step(g) * CUBE + step(b)) as u16;
+            }
+        }
+        for band in 0..height.div_ceil(6) {
+            let rows = (band * 6..((band + 1) * 6).min(height)).collect::<Vec<_>>();
+            let mut used: Vec<u16> = rows
+                .iter()
+                .flat_map(|y| cells[y * width..(y + 1) * width].iter().copied())
+                .collect();
+            used.sort_unstable();
+            used.dedup();
+            for colour in used {
+                out.push_str(&format!("#{colour}"));
+                // Run-length encode the band for this colour.
+                let (mut run, mut previous) = (0usize, u8::MAX);
+                for x in 0..width {
+                    let mut bits = 0u8;
+                    for (offset, y) in rows.iter().enumerate() {
+                        if cells[y * width + x] == colour {
+                            bits |= 1 << offset;
+                        }
+                    }
+                    let symbol = b'?' + bits;
+                    if symbol == previous {
+                        run += 1;
+                        continue;
+                    }
+                    emit(&mut out, previous, run);
+                    (previous, run) = (symbol, 1);
+                }
+                emit(&mut out, previous, run);
+                out.push('$');
+            }
+            out.push('-');
+        }
+        out.push_str("\x1b\\");
+        out
+    }
+}
+
+/// A run of one sixel character, using the repeat introducer when it pays.
+fn emit(out: &mut String, symbol: u8, run: usize) {
+    if run == 0 || symbol == u8::MAX {
+        return;
+    }
+    let symbol = symbol as char;
+    if run > 3 {
+        out.push_str(&format!("!{run}{symbol}"));
+    } else {
+        for _ in 0..run {
+            out.push(symbol);
+        }
+    }
+}
+
+/// The size of one character cell in pixels, which sixel needs and half blocks
+/// do not. A terminal that does not report it cannot be drawn into this way.
+pub fn cell_pixels() -> Option<(u16, u16)> {
+    let size = crossterm::terminal::window_size().ok()?;
+    let (width, height) = (
+        size.width.checked_div(size.columns)?,
+        size.height.checked_div(size.rows)?,
+    );
+    (width > 0 && height > 0).then_some((width, height))
+}
+
+/// Whether to draw covers as sixel. `Auto` is a guess from the terminal's own
+/// name and whether it reports a pixel size — sixel support cannot be read off
+/// either, and asking the terminal directly means a handshake in the middle of
+/// the input stream. `sixel` and `blocks` in the configuration settle it
+/// outright for anyone this guesses wrong about.
+pub fn use_sixel(setting: crate::config::AlbumArt) -> bool {
+    use crate::config::AlbumArt;
+    match setting {
+        AlbumArt::Sixel => true,
+        AlbumArt::Off | AlbumArt::Blocks => false,
+        AlbumArt::Auto => {
+            if cell_pixels().is_none() {
+                return false;
+            }
+            let term = std::env::var("TERM").unwrap_or_default();
+            let program = std::env::var("TERM_PROGRAM").unwrap_or_default();
+            term.starts_with("foot")
+                || term.contains("mlterm")
+                || term.contains("contour")
+                || program.eq_ignore_ascii_case("WezTerm")
+        }
+    }
+}
+
 /// The proxy URL for a cover, asking for the smallest served size that still
 /// covers the cells it will be drawn into.
 pub fn url(server: &str, proxy_id: &str, columns: u16) -> Result<String> {

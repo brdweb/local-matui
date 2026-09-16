@@ -410,7 +410,7 @@ impl ApiClient {
                     } else {
                         format!("[{label}] {}", text(item, "name"))
                     },
-                    artist: artist(item),
+                    artist: byline(item),
                 });
             }
         }
@@ -438,16 +438,42 @@ impl ApiClient {
     }
 }
 fn artist(v: &Value) -> String {
-    v["artists"]
-        .as_array()
-        .map(|a| {
-            a.iter()
-                .map(|v| text(v, "name"))
-                .filter(|s| !s.is_empty())
+    names(&v["artists"])
+}
+
+/// Names from a list whose entries may be objects or, for an audiobook's
+/// authors and narrators, plain strings.
+fn names(list: &Value) -> String {
+    list.as_array()
+        .map(|entries| {
+            entries
+                .iter()
+                .map(|entry| match entry.as_str() {
+                    Some(name) => name.to_owned(),
+                    None => text(entry, "name"),
+                })
+                .filter(|name| !name.is_empty())
                 .collect::<Vec<_>>()
                 .join(", ")
         })
         .unwrap_or_default()
+}
+
+/// What an item belongs to, which is a different question per media type: the
+/// artists and album for a track, the show for a podcast episode, the authors
+/// for an audiobook. A track with neither is left blank rather than padded with
+/// its own media type.
+pub(crate) fn byline(v: &Value) -> String {
+    let parts = match v["media_type"].as_str().unwrap_or_default() {
+        "podcast_episode" => vec![text(&v["podcast"], "name")],
+        "audiobook" => vec![names(&v["authors"]), names(&v["narrators"])],
+        _ => vec![artist(v), text(&v["album"], "name")],
+    };
+    parts
+        .into_iter()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(" · ")
 }
 fn queue_item(v: &Value) -> QueueItem {
     let title = text(&v["media_item"], "name");
@@ -458,7 +484,7 @@ fn queue_item(v: &Value) -> QueueItem {
         } else {
             title
         },
-        artist: artist(&v["media_item"]),
+        artist: byline(&v["media_item"]),
         duration: v["duration"].as_f64().unwrap_or_default(),
     }
 }

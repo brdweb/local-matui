@@ -163,22 +163,20 @@ impl Media {
         // not the same as "not played": nothing is shown then.
         let fully_played = v["fully_played"].as_bool().unwrap_or(false);
         let resume_ms = v["resume_position_ms"].as_u64().filter(|ms| *ms > 0);
-        let artists = v["artists"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|a| a["name"].as_str())
-            .collect::<Vec<_>>()
-            .join(", ");
         let progress = if fully_played {
             " · played".into()
         } else {
             resume_ms.map_or(String::new(), |ms| format!(" · resume {}", position(ms)))
         };
-        let detail = if artists.is_empty() {
-            clean(&format!("{kind} · {}{progress}", value("provider")))
+        // What the item belongs to, if the server said: the show for an
+        // episode, the artists and album for a track. Falling back to the media
+        // type reads better than a provider instance id, which means nothing to
+        // anyone reading it.
+        let belongs = crate::api::byline(v);
+        let detail = if belongs.is_empty() {
+            clean(&format!("{}{progress}", readable(&kind)))
         } else {
-            clean(&format!("{artists} · {kind}{progress}"))
+            clean(&format!("{belongs}{progress}"))
         };
         Self {
             title: clean(&value("name")),
@@ -224,6 +222,12 @@ impl Media {
     fn tracks_progress(&self) -> bool {
         matches!(self.kind.as_str(), "podcast_episode" | "audiobook")
     }
+}
+
+/// A media type as a person would say it: "podcast episode", not
+/// "podcast_episode".
+fn readable(kind: &str) -> String {
+    kind.replace('_', " ")
 }
 
 /// A resume point, which for an audiobook is routinely hours in.
