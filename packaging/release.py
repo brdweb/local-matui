@@ -30,7 +30,8 @@ def digest(path):
 def main():
     assert not command('git', 'status', '--porcelain'), 'Commit release changes first'
     version = tomllib.loads((ROOT / 'Cargo.toml').read_text())['package']['version']
-    assert re.fullmatch(r'\d+\.\d+\.\d+-beta\.\d+', version), 'Beta versions only'
+    # Matches stage.py: a release may or may not carry a prerelease suffix.
+    assert re.fullmatch(r'\d+\.\d+\.\d+(?:-beta\.\d+)?', version), version
     assert (STAGE / 'VERSION').read_text().strip() == version
     binary = ROOT / 'target/release/ma-tui'
     assert command(str(binary), '--version') == f'ma-tui {version}'
