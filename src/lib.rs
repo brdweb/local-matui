@@ -1,5 +1,6 @@
 //! Local Matui application components.
 pub mod api;
+pub mod artwork;
 pub mod audio;
 pub mod cli;
 pub mod config;

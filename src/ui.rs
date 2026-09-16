@@ -535,6 +535,8 @@ pub struct App {
     /// Set while drawing when something on screen is mid-scroll, so the loop
     /// knows this frame is not the final one.
     pub scrolling: bool,
+    /// The cover for what is playing, when there is one and it is wanted.
+    pub artwork: Option<crate::artwork::Art>,
     /// How the spectrum is drawn, from configuration.
     pub spectrum_style: crate::config::Spectrum,
     /// Set while drawing when the spectrum is on screen. It is driven by the
@@ -578,6 +580,7 @@ impl Default for App {
             connected: false,
             live: false,
             tick: 0,
+            artwork: None,
             spectrum_style: crate::config::Spectrum::default(),
             scrolling: false,
             animating: false,
@@ -621,9 +624,16 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     // everything else belongs to the lists. The player carries the spectrum
     // when this run has local audio and the terminal can spare the rows.
     let strip = strip_rows(app, area.height);
+    // A cover needs rows of its own: it must not depend on the spectrum being
+    // there, and four rows of player would leave it too small to recognise.
+    let cover = if app.artwork.is_some() && area.height >= 24 {
+        10
+    } else {
+        0
+    };
     let rows = Layout::vertical([
         Constraint::Length(2),
-        Constraint::Length(4 + strip),
+        Constraint::Length((4 + strip).max(cover)),
         Constraint::Length(1),
         Constraint::Min(3),
         Constraint::Length(1),
@@ -746,6 +756,22 @@ fn draw_now_playing(frame: &mut Frame, app: &mut App, area: Rect, strip: u16) {
         .players
         .iter()
         .find(|p| Some(&p.id) == app.selected_id.as_ref());
+    // A cell is about twice as tall as it is wide and carries two pixels, so a
+    // square cover wants twice as many columns as rows.
+    let area = match app.artwork.as_ref().filter(|_| area.height >= 6) {
+        Some(art) => {
+            let columns = (area.height * 2).min(area.width / 3);
+            let split =
+                Layout::horizontal([Constraint::Length(columns), Constraint::Min(20)]).spacing(2);
+            let parts = split.split(area);
+            frame.render_widget(
+                Paragraph::new(art.half_blocks(parts[0].width, parts[0].height)),
+                parts[0],
+            );
+            parts[1]
+        }
+        None => area,
+    };
     let rows = Layout::vertical([
         Constraint::Length(1),
         Constraint::Length(1),

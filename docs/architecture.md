@@ -244,6 +244,35 @@ column naming the playing item or giving the item's length — and the transport
 row shows all four controls with the current state filled, so it reads without
 pressing anything.
 
+## Album art (2026-09-16)
+
+`/imageproxy/<proxy_id>?size=&fmt=` serves covers without credentials and
+resizes server-side, so the client asks for a small image rather than fetching a
+full cover to discard most of it. The served sizes are fixed by the server
+(0, 80, 160, 256, 512, 1024) and `fmt=jpg` is requested so only one decoder is
+needed: `zune-jpeg`, two crates, chosen over the `image` crate's twenty-four
+because nothing here needs the rest of them. The `proxy_id` is generated during
+serialization and appears on `MediaItemImage`, which a queue item may carry at
+its media item's metadata or as a mapping; all the places it turns up are tried.
+The id goes into a URL path, so it is validated as alphanumeric rather than
+trusted.
+
+Covers are drawn as half blocks: the upper half takes the foreground colour and
+the lower half the background, so a cell carries two pixels and a panel `n`
+columns wide is `n` pixels wide. That is coarse, and deliberate — these are
+ordinary styled cells, so they compose with the diffing renderer, survive a
+resize and cost nothing to redraw. A terminal graphics protocol (foot has sixel;
+Alacritty has none) is sharper but writes bytes the cell renderer does not know
+about and must then fight it for the region on every frame.
+
+The cover is fetched when the playing item changes, not on every queue read, and
+a superseded fetch is cancelled. It needs ten rows of its own: it must not
+depend on the spectrum being present, and the four-row player leaves it too
+small to recognise. `album_art = false` turns it off entirely.
+
+Sources: `controllers/metadata/images.py` and `constants.py` at server tag
+2.10.2, and `media_items/media_item.py` in music-assistant/models.
+
 ## Engineering safeguards
 
 - Treat successful command submission separately from confirmed player state.

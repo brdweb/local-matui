@@ -345,6 +345,35 @@ impl ApiClient {
         Ok(())
     }
 
+    /// Fetch a cover from the image proxy. It is served without credentials and
+    /// resized server-side, so this is a plain GET for a small image.
+    pub async fn artwork(&self, proxy_id: &str, columns: u16) -> Result<crate::artwork::Art> {
+        let base = self
+            .endpoint
+            .as_str()
+            .strip_suffix("/api")
+            .unwrap_or_default();
+        let url = crate::artwork::url(base, proxy_id, columns)?;
+        let response = self
+            .http
+            .get(url)
+            .send()
+            .await
+            .map_err(|_| anyhow!("Album art request failed"))?;
+        if !response.status().is_success() {
+            return Err(anyhow!("Album art unavailable"));
+        }
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|_| anyhow!("Album art download failed"))?;
+        // A cover is small; anything large enough to be a problem is not one.
+        if bytes.len() > 8 * 1024 * 1024 {
+            return Err(anyhow!("Album art is too large"));
+        }
+        crate::artwork::Art::decode(&bytes)
+    }
+
     pub async fn search(&self, query: &str) -> Result<Vec<Track>> {
         let v = self
             .command(

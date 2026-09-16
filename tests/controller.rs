@@ -34,7 +34,7 @@ async fn worker_polls_without_blocking_caller_and_can_cancel_stalled_request() {
         let (_socket, _) = listener.accept().await.unwrap();
         std::future::pending::<()>().await;
     });
-    let mut controller = Controller::start(client, None);
+    let mut controller = Controller::start(client, None, false);
     let event = tokio::time::timeout(std::time::Duration::from_secs(2), controller.updates.recv())
         .await
         .unwrap()
@@ -85,7 +85,7 @@ async fn a_stalled_browse_does_not_block_the_poll() {
             });
         }
     });
-    let mut controller = Controller::start(client, None);
+    let mut controller = Controller::start(client, None, false);
     let first = tokio::time::timeout(Duration::from_secs(2), controller.updates.recv())
         .await
         .unwrap()
@@ -173,7 +173,7 @@ async fn events_route_by_queue_and_a_position_needs_no_request() {
     });
 
     let (feed, stream) = tokio::sync::mpsc::channel(16);
-    let mut controller = Controller::start(client, Some(stream));
+    let mut controller = Controller::start(client, Some(stream), false);
     controller.selection.send(Some("p1".into())).unwrap();
 
     // Wait until a queue has actually been read, so the controller knows which

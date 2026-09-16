@@ -16,6 +16,8 @@ pub enum Update {
     Stream(bool),
     /// Listening progress changed somewhere in the library.
     Playlog,
+    /// The cover for what is playing, or none when there is not one.
+    Artwork(Option<crate::artwork::Art>),
     Offline(String),
     Search(String, Result<Vec<Track>, String>),
     Browse(
@@ -102,8 +104,12 @@ async fn next_event(events: &mut Option<mpsc::Receiver<Event>>) -> Option<Event>
     }
 }
 
+/// Columns the cover is requested for. The proxy's smallest served size is 80,
+/// which is already more than any panel this interface draws.
+const ARTWORK_COLUMNS: u16 = 80;
+
 impl Controller {
-    pub fn start(api: ApiClient, events: Option<mpsc::Receiver<Event>>) -> Self {
+    pub fn start(api: ApiClient, events: Option<mpsc::Receiver<Event>>, artwork: bool) -> Self {
         let (selection, mut selected) = watch::channel::<Option<String>>(None);
         let (requests, mut commands) = mpsc::channel::<Request>(32);
         let (tx, updates) = mpsc::channel(16);
@@ -120,6 +126,9 @@ impl Controller {
             // the interface discards stale replies by generation, so a superseded
             // request is cancelled rather than left to finish unread.
             let (mut browsing, mut searching) = (Pending::default(), Pending::default());
+            // The cover only changes when the item does, so it is fetched then
+            // rather than on every queue read.
+            let (mut covering, mut cover) = (Pending::default(), String::new());
             loop {
                 let mut stale = Stale::all();
                 tokio::select! {
@@ -237,6 +246,24 @@ impl Controller {
                     // Remember which queue is on screen so its events are the
                     // only ones that cost a read.
                     current = queue.as_ref().ok().map(|q| q.id.clone());
+                    if artwork {
+                        let next = queue
+                            .as_ref()
+                            .ok()
+                            .and_then(|q| crate::artwork::proxy_id(&q.details["current_item"]))
+                            .unwrap_or_default();
+                        if next != cover {
+                            cover = next.clone();
+                            let (api, tx) = (api.clone(), tx.clone());
+                            covering.replace(tokio::spawn(async move {
+                                let art = match next.is_empty() {
+                                    true => None,
+                                    false => api.artwork(&next, ARTWORK_COLUMNS).await.ok(),
+                                };
+                                let _ = tx.send(Update::Artwork(art)).await;
+                            }));
+                        }
+                    }
                     if tx.send(Update::Queue(id, queue)).await.is_err() {
                         break;
                     }
