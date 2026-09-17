@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.2 — 2026-09-17
+
+- Add a screenshot to the README.
+- Trim the README's install steps to read the same across releases instead of
+  hardcoding a version.
+- Drop the stale "(Flatpak Beta)" label from the Flatpak desktop entry's name;
+  0.9.1 was already the first release that was not a beta.
+- Draw a rule between the player list and the queue instead of leaving blank
+  space, matching every other section boundary in the layout.
+
 ## 0.9.1 — 2026-09-16
 
 - Update rustls to 0.23.45 for RUSTSEC-2026-0285, which 0.9.0 shipped. Rustls
