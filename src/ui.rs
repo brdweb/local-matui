@@ -682,12 +682,13 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     let listed = (app.players.len() * 2 + 1) as u16;
     let side = Layout::vertical([
         Constraint::Length(listed.clamp(3, (cols[0].height / 2).max(3))),
+        Constraint::Length(1),
         Constraint::Min(3),
     ])
-    .spacing(1)
     .split(cols[0]);
     draw_players(frame, app, side[0]);
-    draw_queue(frame, app, side[1]);
+    rule(frame, side[1], palette);
+    draw_queue(frame, app, side[2]);
     if app.menu.is_some() {
         crate::controls::draw(frame, app, cols[1]);
     } else if app.content == Focus::Search || app.focus == Focus::Search || app.editing {
