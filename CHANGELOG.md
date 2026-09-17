@@ -9,6 +9,14 @@
   0.9.1 was already the first release that was not a beta.
 - Draw a rule between the player list and the queue instead of leaving blank
   space, matching every other section boundary in the layout.
+- Show the actual reason a local audio stream failed instead of always the
+  same generic message. `sendspin`'s stream-error text is now read and
+  displayed (control-character-stripped, capped at 512 characters); previously
+  it was captured but never read, so a real failure and an unknown one looked
+  identical. No logger was added: `sendspin`'s own protocol logging can embed
+  raw server payload text as low as debug/trace (and in one case even at
+  error level), which this module's existing sanitize-only policy exists to
+  avoid.
 
 ## 0.9.1 — 2026-09-16
 

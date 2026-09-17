@@ -257,8 +257,8 @@ pub(crate) trait Output: 'static {
     fn clear(&mut self);
     fn gain(&mut self, gain: Gain);
     fn failed(&self) -> bool;
-    fn failure_detail(&self) -> &'static str {
-        "Audio output failed"
+    fn failure_detail(&self) -> String {
+        "Audio output failed".to_string()
     }
 }
 enum Work {
@@ -468,13 +468,13 @@ where
                         Ok(())
                     })();
                     if let Err(error) = result {
-                        failed = Some(safe_audio_error(&error));
+                        failed = Some(safe_audio_error(&error).to_string());
                         break;
                     }
                 }
                 output.clear();
                 if let Some(detail) = failed {
-                    status(&worker_status, "failed", detail);
+                    status(&worker_status, "failed", &detail);
                     let _ = feedback_tx.try_send((current_epoch, Feedback::Failed));
                 }
             }));
@@ -944,10 +944,24 @@ impl Output for DeviceOutput {
     fn failed(&self) -> bool {
         self.failed.is_some() || self.player.as_ref().is_some_and(|p| p.has_error())
     }
-    fn failure_detail(&self) -> &'static str {
-        self.failed
-            .unwrap_or("Audio output device reported a stream error")
+    // sendspin's take_error() carries the real CPAL/driver message (a local
+    // system diagnostic, not peer-supplied data — unlike the rest of this
+    // module's sanitized-only messages, this one is safe to show verbatim,
+    // still bounded and control-character-stripped as defense in depth).
+    fn failure_detail(&self) -> String {
+        if let Some(detail) = self.failed {
+            return detail.to_string();
+        }
+        match self.player.as_ref().and_then(|p| p.take_error()) {
+            Some(error) => stream_error_detail(&error),
+            None => "Audio output device reported a stream error".to_string(),
+        }
     }
+}
+
+fn stream_error_detail(raw: &str) -> String {
+    let error: String = raw.chars().filter(|c| !c.is_control()).take(512).collect();
+    format!("Audio output device reported a stream error: {error}")
 }
 
 /// MA 2.10.2 mounts the authenticated receiver at /sendspin.
@@ -971,6 +985,31 @@ pub(crate) fn proxy_url(base: &str) -> Result<url::Url> {
     let path = format!("{}/sendspin", url.path().trim_end_matches('/'));
     url.set_path(&path);
     Ok(url)
+}
+
+#[cfg(test)]
+mod stream_error_detail_tests {
+    use super::stream_error_detail;
+
+    #[test]
+    fn carries_the_driver_message_through() {
+        assert_eq!(
+            stream_error_detail("device disconnected"),
+            "Audio output device reported a stream error: device disconnected"
+        );
+    }
+
+    #[test]
+    fn strips_control_characters_and_caps_length() {
+        let raw = format!("bad\x1b[31mtext\n{}", "x".repeat(600));
+        let detail = stream_error_detail(&raw);
+        assert!(!detail.contains('\x1b'));
+        assert!(!detail.contains('\n'));
+        // The static prefix plus at most 512 characters of sanitized message.
+        let prefix = "Audio output device reported a stream error: ";
+        assert!(detail.starts_with(prefix));
+        assert_eq!(detail.len() - prefix.len(), 512);
+    }
 }
 
 #[cfg(test)]
