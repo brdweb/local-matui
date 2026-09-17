@@ -16,6 +16,8 @@ MA-TUI targets **Music Assistant 2.10.2** and is pre-1.0: the features above are
 in daily use, but other server versions and audio devices may behave differently.
 See [Known limitations](#known-limitations).
 
+![MA-TUI showing the player, speaker list and music browser](docs/images/screenshot.png)
+
 ## Installation
 
 Download the Flatpak bundle, Arch package or Linux x86-64 archive along with
