@@ -1,6 +1,6 @@
 [Desktop Entry]
 Type=Application
-Name=MA-TUI (Flatpak Beta)
+Name=MA-TUI
 Comment=Music Assistant controller and local speaker
 Exec=ma-tui
 Icon=audio-speakers
