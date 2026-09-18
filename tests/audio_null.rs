@@ -9,16 +9,31 @@ use tokio_tungstenite::tungstenite::Message;
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires Linux ALSA null output; run explicitly"]
 async fn opens_real_cpal_null_stream_and_acknowledges_volume() {
-    check_output(Some("alsa:null")).await;
+    check_output(Some("alsa:null"), None).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires a desktop default output; opens a silent stream with no audio frames"]
 async fn opens_default_output_silently_and_acknowledges_volume() {
-    check_output(None).await;
+    check_output(None, None).await;
 }
 
-async fn check_output(device: Option<&str>) {
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires a desktop default output; opens a silent stream with a 1024-frame buffer"]
+async fn opens_default_output_with_1024_frame_buffer_silently() {
+    check_output(None, Some(1024)).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires a desktop default output; opens a silent stream with a 2048-frame buffer"]
+async fn opens_default_output_with_2048_frame_buffer_silently() {
+    check_output(None, Some(2048)).await;
+}
+
+async fn check_output(device: Option<&str>, output_buffer_frames: Option<u32>) {
+    if device.is_none() {
+        println!("CPAL default host: {}", cpal::default_host().id().name());
+    }
     assert!(audio::devices()
         .unwrap()
         .iter()
@@ -64,6 +79,7 @@ async fn check_output(device: Option<&str>) {
             player_id: "null-fixture".into(),
             player_name: "Null fixture".into(),
             device_id: device.map(str::to_owned),
+            output_buffer_frames,
             volume: 30,
             muted: false,
         },
@@ -74,8 +90,21 @@ async fn check_output(device: Option<&str>) {
         loop {
             let status = audio.status.borrow().clone();
             assert_ne!(status.state, "failed", "{}", status.detail);
-            if status.detail == "Audio stream configured" {
-                break;
+            if let Some((_, callbacks)) = status.detail.split_once("callbacks ") {
+                let frames = callbacks.split_once(" frames").unwrap().0;
+                let (minimum, maximum) = frames.split_once('–').unwrap();
+                let minimum: usize = minimum.parse().unwrap();
+                let maximum: usize = maximum.parse().unwrap();
+                if maximum > 0 {
+                    assert!(minimum > 0 && maximum >= minimum, "{}", status.detail);
+                    assert_eq!(status.state, "ready", "{}", status.detail);
+                    println!(
+                        "Silent output telemetry ({}): {}",
+                        device.unwrap_or("default"),
+                        status.detail
+                    );
+                    break;
+                }
             }
             audio.status.changed().await.unwrap();
         }

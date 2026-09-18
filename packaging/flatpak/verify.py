@@ -29,6 +29,7 @@ def main():
     assert sandbox('sha256sum', '/app/bin/ma-tui').split()[0] == info['binary_sha256']
     assert sandbox('sha256sum', '/app/bin/secret-tool').split()[0] == info['secret_tool_sha256']
     assert sandbox('ma-tui', '--version') == f"ma-tui {info['version']}"
+    assert sandbox('sha256sum', '/app/share/doc/ma-tui/audio-troubleshooting.md').split()[0] == hashlib.sha256((ROOT / 'docs/audio-troubleshooting.md').read_bytes()).hexdigest()
     assert 'MA-TUI' in sandbox('ma-tui', '--demo', '--snapshot')
     assert 'default' in sandbox('ma-tui', '--list-devices').lower()
     sandbox('sh', '-c', 'test ! -e "$HOME/.config/ma-tui/config.toml"')

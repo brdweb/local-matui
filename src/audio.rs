@@ -17,6 +17,10 @@ use sendspin::audio::decode::{Decoder, FlacDecoder, OpusDecoder, PcmDecoder, Pcm
 use sendspin::audio::{AudioFormat, Codec};
 use sendspin::protocol::messages::{AudioFormatSpec, StreamPlayerConfig};
 
+#[path = "audio_health.rs"]
+mod health;
+use health::{CallbackStats, HealthDecision, HealthMonitor};
+
 pub(crate) struct StreamDecoder {
     format: AudioFormat,
     decoder: Box<dyn Decoder>,
@@ -191,6 +195,7 @@ pub struct AudioConfig {
     pub player_id: String,
     pub player_name: String,
     pub device_id: Option<String>,
+    pub output_buffer_frames: Option<u32>,
     pub volume: u8,
     pub muted: bool,
 }
@@ -257,8 +262,20 @@ pub(crate) trait Output: 'static {
     fn clear(&mut self);
     fn gain(&mut self, gain: Gain);
     fn failed(&self) -> bool;
+    // Only driver failures may rebuild the output. Decode/buffer failures
+    // remain fatal rather than being hidden by a reconnect loop.
+    fn recoverable_failure(&self) -> bool {
+        false
+    }
     fn failure_detail(&self) -> String {
         "Audio output failed".to_string()
+    }
+    fn poll_failure(&mut self) -> Option<(bool, String)> {
+        self.failed()
+            .then(|| (self.recoverable_failure(), self.failure_detail()))
+    }
+    fn diagnostics(&self) -> Option<String> {
+        None
     }
 }
 enum Work {
@@ -294,6 +311,7 @@ fn safe_audio_error(error: &anyhow::Error) -> &'static str {
         "Audio decoding failed",
         "Invalid decoded audio size",
         "Audio output stream creation failed",
+        "Requested output buffer size is unsupported by this device",
         "Selected audio output device not found",
         "No default audio output device",
         "Audio output configuration unavailable",
@@ -321,47 +339,41 @@ fn worker_stopped(tx: &watch::Sender<AudioStatus>) {
     });
 }
 
-pub(crate) fn start_with_output<O, F>(config: AudioConfig, factory: F) -> Result<AudioHandle>
+// Each attempt owns fresh channels and a fresh device. A completed worker
+// must release its output before the next one opens the configured device.
+struct OutputWorker {
+    work: thread_channel::SyncSender<(u64, Work)>,
+    feedback: mpsc::Receiver<(u64, Feedback)>,
+    ready: oneshot::Receiver<std::result::Result<Vec<AudioFormatSpec>, &'static str>>,
+    done: oneshot::Receiver<(bool, Option<String>)>,
+    thread: std::thread::JoinHandle<()>,
+}
+
+fn spawn_output_worker<O, F>(
+    factory: Arc<parking_lot::Mutex<F>>,
+    mut gain: Gain,
+    worker_stop: Arc<AtomicBool>,
+    worker_epoch: Arc<AtomicU64>,
+    worker_status: watch::Sender<AudioStatus>,
+) -> Result<OutputWorker>
 where
     O: Output,
-    F: FnOnce() -> Result<O> + Send + 'static,
+    F: FnMut() -> Result<O> + Send + 'static,
 {
-    let url = proxy_url(&config.server)?;
-    if config.token.trim().is_empty()
-        || config.player_id.trim().is_empty()
-        || config.player_name.trim().is_empty()
-        || config.volume > 100
-    {
-        bail!("Invalid audio configuration");
-    }
-    let runtime = tokio::runtime::Handle::try_current()
-        .map_err(|_| anyhow::anyhow!("Audio requires a Tokio runtime"))?;
-    let (status_tx, status_rx) = watch::channel(AudioStatus {
-        state: "starting".into(),
-        detail: "Initializing audio output".into(),
-    });
-    let (cancel, mut cancellation) = watch::channel(false);
-    let stop = Arc::new(AtomicBool::new(false));
-    let epoch = Arc::new(AtomicU64::new(0));
     let (work_tx, work_rx) = thread_channel::sync_channel(64);
-    let (feedback_tx, mut feedback_rx) = mpsc::channel(32);
+    let (feedback_tx, feedback_rx) = mpsc::channel(32);
     let (ready_tx, ready_rx) = oneshot::channel();
-    let (done_tx, mut done_rx) = oneshot::channel();
-    let worker_stop = stop.clone();
-    let worker_epoch = epoch.clone();
-    let worker_status = status_tx.clone();
-    let mut gain = Gain {
-        volume: config.volume,
-        muted: config.muted,
-        delay: 0,
-    };
+    let (done_tx, done_rx) = oneshot::channel();
     let worker = std::thread::Builder::new()
         .name("ma-tui-audio".into())
         .spawn(move || {
+            let mut recoverable = false;
+            let mut failure_detail = None;
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                let mut output = match factory() {
+                let mut output = match (factory.lock())() {
                     Ok(o) => o,
                     Err(error) => {
+                        recoverable = true;
                         let _ = ready_tx.send(Err(safe_audio_error(&error)));
                         return;
                     }
@@ -369,6 +381,7 @@ where
                 let formats = match output.formats() {
                     Ok(f) if !f.is_empty() => f,
                     _ => {
+                        recoverable = true;
                         let _ = ready_tx.send(Err("No supported audio output formats"));
                         return;
                     }
@@ -379,7 +392,25 @@ where
                 let mut setup: Option<(StreamPlayerConfig, SharedClock)> = None;
                 let mut active = false;
                 let mut failed = None;
+                let mut last_diagnostics = std::time::Instant::now();
                 while !worker_stop.load(Ordering::Acquire) {
+                    if let Some((retry, detail)) = output.poll_failure() {
+                        recoverable = retry;
+                        failed = Some(detail);
+                        break;
+                    }
+                    if last_diagnostics.elapsed() >= Duration::from_secs(1) {
+                        last_diagnostics = std::time::Instant::now();
+                        if let Some(detail) = output.diagnostics() {
+                            worker_status.send_if_modified(|current| {
+                                if current.state != "ready" || current.detail == detail {
+                                    return false;
+                                }
+                                current.detail = detail;
+                                true
+                            });
+                        }
+                    }
                     let new_epoch = worker_epoch.load(Ordering::Acquire);
                     if current_epoch != new_epoch {
                         output.clear();
@@ -387,10 +418,6 @@ where
                         setup = None;
                         active = false;
                         current_epoch = new_epoch;
-                    }
-                    if output.failed() {
-                        failed = Some(output.failure_detail());
-                        break;
                     }
                     let (generation, event) = match work_rx.recv_timeout(Duration::from_millis(10))
                     {
@@ -468,6 +495,7 @@ where
                         Ok(())
                     })();
                     if let Err(error) = result {
+                        recoverable = error.to_string() == "Audio output stream creation failed";
                         failed = Some(safe_audio_error(&error).to_string());
                         break;
                     }
@@ -475,47 +503,203 @@ where
                 output.clear();
                 if let Some(detail) = failed {
                     status(&worker_status, "failed", &detail);
+                    failure_detail = Some(detail);
                     let _ = feedback_tx.try_send((current_epoch, Feedback::Failed));
                 }
             }));
             if result.is_err() {
+                recoverable = false;
                 status(&worker_status, "failed", "Audio worker failed");
+                failure_detail = Some("Audio worker failed".into());
             }
-            let _ = done_tx.send(());
+            let _ = done_tx.send((recoverable, failure_detail));
         })
         .map_err(|_| anyhow::anyhow!("Unable to start audio worker"))?;
+    Ok(OutputWorker {
+        work: work_tx,
+        feedback: feedback_rx,
+        ready: ready_rx,
+        done: done_rx,
+        thread: worker,
+    })
+}
+
+pub(crate) fn start_with_output<O, F>(config: AudioConfig, factory: F) -> Result<AudioHandle>
+where
+    O: Output,
+    F: FnMut() -> Result<O> + Send + 'static,
+{
+    let url = proxy_url(&config.server)?;
+    if config.token.trim().is_empty()
+        || config.player_id.trim().is_empty()
+        || config.player_name.trim().is_empty()
+        || config.volume > 100
+    {
+        bail!("Invalid audio configuration");
+    }
+    let runtime = tokio::runtime::Handle::try_current()
+        .map_err(|_| anyhow::anyhow!("Audio requires a Tokio runtime"))?;
+    let (status_tx, status_rx) = watch::channel(AudioStatus {
+        state: "starting".into(),
+        detail: "Initializing audio output".into(),
+    });
+    let (cancel, mut cancellation) = watch::channel(false);
+    let stop = Arc::new(AtomicBool::new(false));
+    let epoch = Arc::new(AtomicU64::new(0));
+    let mut gain = Gain {
+        volume: config.volume,
+        muted: config.muted,
+        delay: 0,
+    };
+    let factory = Arc::new(parking_lot::Mutex::new(factory));
     let task_stop = stop.clone();
     let task = runtime.spawn(async move {
-        let mut worker_finished = false;
-        let ready = tokio::select! {biased; _=cancellation.changed()=>None, r=ready_rx=>r.ok()};
-        if let Some(Ok(formats)) = ready {
-            let mut retry = Duration::from_millis(250);
-            loop {
-                if *cancellation.borrow() || task_stop.load(Ordering::Acquire) {break;}
-                status(&status_tx,"connecting","Connecting to authenticated audio proxy");
-                let started=std::time::Instant::now();
-                let result=tokio::select! {
-                    biased;
-                    _=cancellation.changed()=>break,
-                    _=&mut done_rx=>{worker_finished=true;worker_stopped(&status_tx);break;},
-                    r=session(&config,&url,&formats,&mut gain,SessionIo {work:&work_tx,epoch:&epoch,feedback:&mut feedback_rx},&status_tx)=>r,
-                };
-                epoch.fetch_add(1,Ordering::AcqRel);
-                if status_tx.borrow().state=="failed" {break;}
-                if feedback_rx.is_closed() {worker_stopped(&status_tx);break;}
-                let detail=result.err().map(|e|e.to_string()).unwrap_or_else(||"Audio connection closed".into());
-                status(&status_tx,"reconnecting",&detail);
-                if started.elapsed() > Duration::from_secs(30) {retry=Duration::from_millis(250);}
-                tokio::select! {biased; _=cancellation.changed()=>break, _=&mut done_rx=>{worker_finished=true;worker_stopped(&status_tx);break;}, _=tokio::time::sleep(retry)=>{}}
-                retry=(retry*2).min(Duration::from_secs(30));
+        let mut recoveries = 0u32;
+        loop {
+            if *cancellation.borrow() || task_stop.load(Ordering::Acquire) {
+                break;
             }
-        } else if !*cancellation.borrow() {status(&status_tx,"failed",ready.and_then(Result::err).unwrap_or("Audio output initialization failed"));}
-        task_stop.store(true,Ordering::Release);
-        drop(work_tx);
-        // Never block a Tokio executor on a device driver. Rust cannot kill a
-        // stuck OS thread; timeout detaches it, still owning only its own output.
-        if worker_finished || tokio::time::timeout(Duration::from_secs(2),done_rx).await.is_ok() {let _=worker.join();}
-        if *cancellation.borrow() {status(&status_tx,"stopped","Audio stopped");}
+            let OutputWorker {
+                work: work_tx,
+                feedback: mut feedback_rx,
+                ready: ready_rx,
+                done: mut done_rx,
+                thread: worker,
+            } = match spawn_output_worker(
+                factory.clone(),
+                gain,
+                task_stop.clone(),
+                epoch.clone(),
+                status_tx.clone(),
+            ) {
+                Ok(worker) => worker,
+                Err(_) => {
+                    status(&status_tx, "failed", "Unable to start audio worker");
+                    break;
+                }
+            };
+            let mut finished = None;
+            let ready = tokio::select! {
+                biased;
+                _ = cancellation.changed() => None,
+                r = ready_rx => r.ok(),
+            };
+            let initialized = matches!(&ready, Some(Ok(_)));
+            let started_output = std::time::Instant::now();
+            if let Some(Ok(formats)) = ready {
+                let mut retry = Duration::from_millis(250);
+                loop {
+                    if *cancellation.borrow() || task_stop.load(Ordering::Acquire) {
+                        break;
+                    }
+                    status(
+                        &status_tx,
+                        "connecting",
+                        "Connecting to authenticated audio proxy",
+                    );
+                    let started = std::time::Instant::now();
+                    let result = tokio::select! {
+                        biased;
+                        _ = cancellation.changed() => break,
+                        r = &mut done_rx => {
+                            finished = Some(r.unwrap_or((false, None)));
+                            worker_stopped(&status_tx);
+                            break;
+                        },
+                        r = session(&config, &url, &formats, &mut gain,
+                            SessionIo {work: &work_tx, epoch: &epoch, feedback: &mut feedback_rx},
+                            &status_tx) => r,
+                    };
+                    epoch.fetch_add(1, Ordering::AcqRel);
+                    if status_tx.borrow().state == "failed" {
+                        break;
+                    }
+                    if feedback_rx.is_closed() {
+                        worker_stopped(&status_tx);
+                        break;
+                    }
+                    let detail = result
+                        .err()
+                        .map(|e| e.to_string())
+                        .unwrap_or_else(|| "Audio connection closed".into());
+                    status(&status_tx, "reconnecting", &detail);
+                    if started.elapsed() > Duration::from_secs(30) {
+                        retry = Duration::from_millis(250);
+                    }
+                    tokio::select! {
+                        biased;
+                        _ = cancellation.changed() => break,
+                        r = &mut done_rx => {
+                            finished = Some(r.unwrap_or((false, None)));
+                            worker_stopped(&status_tx);
+                            break;
+                        },
+                        _ = tokio::time::sleep(retry) => {},
+                    }
+                    retry = (retry * 2).min(Duration::from_secs(30));
+                }
+            } else if !*cancellation.borrow() {
+                status(
+                    &status_tx,
+                    "failed",
+                    ready
+                        .and_then(Result::err)
+                        .unwrap_or("Audio output initialization failed"),
+                );
+            }
+            // Dropping the session closes its transport. Fresh channels and a
+            // new negotiation ensure no samples from that session are replayed.
+            epoch.fetch_add(1, Ordering::AcqRel);
+            drop(work_tx);
+            // Never block a Tokio executor on a stuck device thread, and never
+            // reopen a device while the previous worker may still own it.
+            let recovered = match finished {
+                Some(recoverable) => Some(recoverable),
+                None => tokio::time::timeout(Duration::from_secs(2), &mut done_rx)
+                    .await
+                    .ok()
+                    .and_then(Result::ok),
+            };
+            if recovered.is_some() {
+                let _ = worker.join();
+            } else {
+                status(&status_tx, "failed", "Audio worker did not stop");
+            }
+            // The exit reason is authoritative even if a connecting update
+            // raced the worker's failure status.
+            if let Some((_, Some(detail))) = &recovered {
+                status(&status_tx, "failed", detail);
+            }
+            if *cancellation.borrow() || task_stop.load(Ordering::Acquire) {
+                break;
+            }
+            if !matches!(recovered, Some((true, _))) || (!initialized && recoveries == 0) {
+                break;
+            }
+            if initialized && started_output.elapsed() >= Duration::from_secs(30) {
+                recoveries = 0;
+            }
+            if recoveries == 3 {
+                break;
+            }
+            let detail = status_tx.borrow().detail.clone();
+            status(
+                &status_tx,
+                "recovering",
+                &format!("{detail}; retrying audio output ({}/3)", recoveries + 1),
+            );
+            let delay = Duration::from_millis(250 * (1 << recoveries));
+            recoveries += 1;
+            tokio::select! {
+                biased;
+                _ = cancellation.changed() => break,
+                _ = tokio::time::sleep(delay) => {},
+            }
+        }
+        task_stop.store(true, Ordering::Release);
+        if *cancellation.borrow() {
+            status(&status_tx, "stopped", "Audio stopped");
+        }
     });
     Ok(AudioHandle {
         status: status_rx,
@@ -633,7 +817,8 @@ pub struct AudioDevice {
     pub id: String,
     pub name: String,
 }
-/// Enumerate locally, without creating a stream or connecting to any server.
+/// Enumerate local audio services/devices without creating a playback stream
+/// or contacting Music Assistant.
 pub fn devices() -> Result<Vec<AudioDevice>> {
     Ok(enumerate_devices()?
         .into_iter()
@@ -669,9 +854,16 @@ fn enumerate_devices() -> Result<Vec<(cpal::Device, AudioDevice)>> {
 }
 /// `spectrum` receives what this endpoint plays, for the interface visualizer.
 pub fn start(config: AudioConfig, spectrum: Option<Arc<dyn SampleSink>>) -> Result<AudioHandle> {
+    if config
+        .output_buffer_frames
+        .is_some_and(|frames| !(256..=8192).contains(&frames))
+    {
+        bail!("Output buffer frames must be between 256 and 8192");
+    }
     let device_id = config.device_id.clone();
+    let buffer_frames = config.output_buffer_frames;
     start_with_output(config, move || {
-        DeviceOutput::new(device_id.as_deref(), spectrum)
+        DeviceOutput::new(device_id.as_deref(), spectrum.clone(), buffer_frames)
     })
 }
 
@@ -791,9 +983,20 @@ struct DeviceOutput {
     // rejecting excessive or overlapping timestamps before enqueueing.
     queued: QueueBudget,
     failed: Option<&'static str>,
+    buffer_frames: Option<u32>,
+    backend: &'static str,
+    allow_alsa_recovery: bool,
+    callbacks: Arc<CallbackStats>,
+    health: Option<HealthMonitor>,
+    stream_format: Option<(u32, u8)>,
+    driver_failure: Option<String>,
 }
 impl DeviceOutput {
-    fn new(id: Option<&str>, spectrum: Option<Arc<dyn SampleSink>>) -> Result<Self> {
+    fn new(
+        id: Option<&str>,
+        spectrum: Option<Arc<dyn SampleSink>>,
+        buffer_frames: Option<u32>,
+    ) -> Result<Self> {
         let device = if let Some(id) = id {
             enumerate_devices()?
                 .into_iter()
@@ -815,12 +1018,28 @@ impl DeviceOutput {
             .supported_output_configs()
             .map_err(|_| anyhow::anyhow!("Audio output formats unavailable"))?
             .filter(|r| r.sample_format() == sample_type)
+            .filter(|r| {
+                buffer_frames.is_none_or(|frames| match r.buffer_size() {
+                    cpal::SupportedBufferSize::Range { min, max } => {
+                        (*min..=*max).contains(&frames)
+                    }
+                    cpal::SupportedBufferSize::Unknown => true,
+                })
+            })
             .map(|r| (r.channels(), r.min_sample_rate(), r.max_sample_rate()))
             .collect::<Vec<_>>();
         let formats = formats_for_ranges(&ranges);
         if formats.is_empty() {
+            if buffer_frames.is_some() {
+                bail!("Requested output buffer size is unsupported by this device");
+            }
             bail!("No supported audio output formats");
         }
+        #[cfg(target_os = "linux")]
+        let allow_alsa_recovery = device.id().is_ok_and(|id| id.host() == cpal::HostId::Alsa);
+        #[cfg(not(target_os = "linux"))]
+        let allow_alsa_recovery = false;
+        let backend = device.id().map_or("unknown", |id| id.host().name());
         Ok(Self {
             device,
             spectrum,
@@ -829,6 +1048,13 @@ impl DeviceOutput {
             clock: None,
             queued: Default::default(),
             failed: None,
+            buffer_frames,
+            backend,
+            allow_alsa_recovery,
+            callbacks: Arc::new(CallbackStats::new()),
+            health: None,
+            stream_format: None,
+            driver_failure: None,
         })
     }
 }
@@ -838,19 +1064,29 @@ impl Output for DeviceOutput {
     }
     fn begin(&mut self, format: AudioFormat, clock: SharedClock, gain: Gain) -> Result<()> {
         self.clear();
-        let player = SyncedPlayer::new(
+        self.callbacks = Arc::new(CallbackStats::new());
+        let callbacks = self.callbacks.clone();
+        let channels = usize::from(format.channels);
+        let stream_format = (format.sample_rate, format.channels);
+        let player = SyncedPlayer::with_process_callback(
             format,
             clock.clone(),
             SyncedPlayerConfig {
                 device: Some(self.device.clone()),
                 volume: gain.volume,
                 muted: gain.muted,
-                buffer_size: None,
+                buffer_size: self.buffer_frames,
             },
+            Box::new(move |samples| callbacks.observe(samples.len() / channels)),
         )
         .map_err(|_| anyhow::anyhow!("Audio output stream creation failed"))?;
         player.set_static_delay(gain.delay);
         self.player = Some(player);
+        self.stream_format = Some(stream_format);
+        self.health = Some(HealthMonitor::new(
+            std::time::Instant::now(),
+            self.allow_alsa_recovery,
+        ));
         self.clock = Some(clock);
         if let Some(spectrum) = &self.spectrum {
             spectrum.set_muted(gain.muted);
@@ -915,6 +1151,8 @@ impl Output for DeviceOutput {
             drop(player);
         }
         self.clock = None;
+        self.health = None;
+        self.stream_format = None;
         self.queued = QueueBudget::default();
         if let Some(spectrum) = &self.spectrum {
             spectrum.clear();
@@ -942,7 +1180,10 @@ impl Output for DeviceOutput {
         }
     }
     fn failed(&self) -> bool {
-        self.failed.is_some() || self.player.as_ref().is_some_and(|p| p.has_error())
+        self.failed.is_some() || self.driver_failure.is_some()
+    }
+    fn recoverable_failure(&self) -> bool {
+        self.failed.is_none() && self.driver_failure.is_some()
     }
     // sendspin's take_error() carries the real CPAL/driver message (a local
     // system diagnostic, not peer-supplied data — unlike the rest of this
@@ -952,10 +1193,53 @@ impl Output for DeviceOutput {
         if let Some(detail) = self.failed {
             return detail.to_string();
         }
-        match self.player.as_ref().and_then(|p| p.take_error()) {
-            Some(error) => stream_error_detail(&error),
-            None => "Audio output device reported a stream error".to_string(),
+        self.driver_failure
+            .clone()
+            .unwrap_or_else(|| "Audio output device reported a stream error".to_string())
+    }
+    fn poll_failure(&mut self) -> Option<(bool, String)> {
+        if let (Some(player), Some(health)) = (&self.player, &mut self.health) {
+            // Consume the library's error slot exactly once. CPAL's ALSA backend
+            // prepares after XRUN, and the Pulse ALSA adapter can briefly lack
+            // timing information. Only the narrowly matched reports get a
+            // grace period, with new callbacks proving recovery completed.
+            // Other errors still require rebuilding the worker.
+            let error = player.take_error();
+            let callbacks = self.callbacks.snapshot();
+            if let Some((rate, _)) = self.stream_format {
+                // CPAL may service the whole two-period ALSA ring in one
+                // callback. Give both requested and observed large periods
+                // headroom, without mistaking a scheduling gap for a period.
+                let frames = callbacks
+                    .max_frames
+                    .max(self.buffer_frames.unwrap_or(0) as usize * 2);
+                health.set_callback_timeout(Duration::from_secs_f64(
+                    (4.0 * frames as f64 / f64::from(rate)).max(1.0),
+                ));
+            }
+            if let HealthDecision::Failed(detail) =
+                health.poll(std::time::Instant::now(), error.as_deref(), callbacks)
+            {
+                self.driver_failure = Some(stream_error_detail(&detail));
+            }
         }
+        self.failed()
+            .then(|| (self.recoverable_failure(), self.failure_detail()))
+    }
+    fn diagnostics(&self) -> Option<String> {
+        let (rate, channels) = self.stream_format?;
+        let health = self.health.as_ref()?;
+        let callbacks = self.callbacks.snapshot();
+        let buffer = self
+            .buffer_frames
+            .map_or_else(|| "default".to_owned(), |n| n.to_string());
+        Some(format!(
+            "{} · {rate} Hz/{channels} ch · buffer {buffer} · callbacks {}–{} frames · max gap {:.1} ms · XRUN {}/{} recovered · timing {}/{} recovered{}",
+            self.backend, callbacks.min_frames, callbacks.max_frames, callbacks.max_gap.as_secs_f64() * 1000.0,
+            health.recovered_xruns(), health.observed_xruns(),
+            health.recovered_timing_errors(), health.observed_timing_errors(),
+            if health.is_recovering() { " · recovering" } else { "" },
+        ))
     }
 }
 
@@ -1016,6 +1300,68 @@ mod stream_error_detail_tests {
 mod device_output_tests {
     use super::*;
 
+    #[test]
+    #[ignore = "requires Linux ALSA null output; run explicitly"]
+    fn silent_callbacks_report_progress_and_requested_buffer_without_false_recovery() {
+        for requested in [None, Some(1024)] {
+            let mut output = DeviceOutput::new(Some("alsa:null"), None, requested).unwrap();
+            output
+                .begin(
+                    AudioFormat {
+                        codec: Codec::Pcm,
+                        sample_rate: 48000,
+                        channels: 2,
+                        bit_depth: 16,
+                        codec_header: None,
+                    },
+                    Arc::new(parking_lot::Mutex::new(sendspin::sync::ClockSync::default())),
+                    Gain {
+                        volume: 0,
+                        muted: true,
+                        delay: 0,
+                    },
+                )
+                .unwrap();
+            // No clock sync or enqueued media: a healthy silent device must
+            // still report callbacks and must survive the watchdog interval.
+            let start = std::time::Instant::now();
+            while start.elapsed() < Duration::from_millis(1100) {
+                assert!(
+                    output.poll_failure().is_none(),
+                    "{}",
+                    output.failure_detail()
+                );
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            let stats = output.callbacks.snapshot();
+            assert!(stats.count > 1);
+            assert!(stats.min_frames > 0);
+            assert!(stats.max_frames >= stats.min_frames);
+            if let Some(frames) = requested {
+                // ALSA negotiates near the requested period, with a two-period
+                // ring. The null sink accepts it exactly; one callback may
+                // consume both periods when the entire ring is available.
+                assert!(stats.min_frames >= frames as usize);
+                assert!(stats.max_frames <= (frames * 2) as usize);
+            }
+            let detail = output.diagnostics().unwrap();
+            assert!(detail.contains("48000 Hz/2 ch"), "{detail}");
+            assert!(detail.contains("XRUN 0/0 recovered"), "{detail}");
+            assert!(
+                detail.contains(if requested.is_some() {
+                    "buffer 1024"
+                } else {
+                    "buffer default"
+                }),
+                "{detail}"
+            );
+            output.clear();
+            assert!(output.health.is_none());
+            assert!(output.diagnostics().is_none());
+            assert!(output.poll_failure().is_none());
+        }
+    }
+
     /// Records what the output hands to the visualizer, without depending on
     /// the analyzer itself.
     #[derive(Default)]
@@ -1039,7 +1385,7 @@ mod device_output_tests {
     #[ignore = "requires Linux ALSA null output; run explicitly"]
     fn synchronized_output_accepts_full_advertised_pcm_buffer() {
         let sink = Arc::new(RecordingSink::default());
-        let mut output = DeviceOutput::new(Some("alsa:null"), Some(sink.clone())).unwrap();
+        let mut output = DeviceOutput::new(Some("alsa:null"), Some(sink.clone()), None).unwrap();
         let mut sync = sendspin::sync::ClockSync::default();
         std::thread::sleep(Duration::from_millis(2));
         let now = sync.clock().now_micros();
@@ -1073,7 +1419,7 @@ mod device_output_tests {
                 format: format.clone(),
             });
             assert!(
-                !output.failed(),
+                output.poll_failure().is_none(),
                 "{} at chunk {index}",
                 output.failure_detail()
             );
@@ -1105,7 +1451,7 @@ mod device_output_tests {
     #[test]
     #[ignore = "requires Linux ALSA null output; run explicitly"]
     fn begin_delay_can_reset_to_zero_before_audio_or_after_clock_reset() {
-        let mut output = DeviceOutput::new(Some("alsa:null"), None).unwrap();
+        let mut output = DeviceOutput::new(Some("alsa:null"), None, None).unwrap();
         let clock =
             std::sync::Arc::new(parking_lot::Mutex::new(sendspin::sync::ClockSync::default()));
         let format = AudioFormat {

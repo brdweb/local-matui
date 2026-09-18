@@ -9,9 +9,10 @@ arch=('x86_64')
 license=('MIT')
 depends=('glibc>=@GLIBC@' 'gcc-libs' 'alsa-lib' 'ca-certificates' 'libsecret')
 optdepends=('pipewire-alsa: route ALSA output through PipeWire on Omarchy'
+            'rtkit: host realtime scheduling support for local audio'
             'gnome-keyring: desktop Secret Service for saved logins')
 options=('!strip' '!debug')
-source=('ma-tui' 'ma-tui.desktop' 'README.md' 'INSTALL.txt' 'THIRD-PARTY-NOTICES.tar.gz' 'DEVELOPMENT-STATUS' 'LICENSE')
+source=('ma-tui' 'ma-tui.desktop' 'README.md' 'audio-troubleshooting.md' 'INSTALL.txt' 'THIRD-PARTY-NOTICES.tar.gz' 'DEVELOPMENT-STATUS' 'LICENSE')
 sha256sums=(@SHA256SUMS@)
 
 package() {
@@ -19,6 +20,7 @@ package() {
     install -Dm755 "$srcdir/ma-tui" "$pkgdir/usr/bin/ma-tui"
     install -Dm644 "$srcdir/ma-tui.desktop" "$pkgdir/usr/share/applications/ma-tui.desktop"
     install -Dm644 "$srcdir/README.md" "$pkgdir/usr/share/doc/ma-tui/README.md"
+    install -Dm644 "$srcdir/audio-troubleshooting.md" "$pkgdir/usr/share/doc/ma-tui/docs/audio-troubleshooting.md"
     install -Dm644 "$srcdir/INSTALL.txt" "$pkgdir/usr/share/doc/ma-tui/INSTALL.txt"
     install -Dm644 "$srcdir/DEVELOPMENT-STATUS" "$pkgdir/usr/share/licenses/ma-tui/DEVELOPMENT-STATUS"
     cp -r "$srcdir/third-party" "$pkgdir/usr/share/licenses/ma-tui/"

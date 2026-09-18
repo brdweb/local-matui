@@ -76,6 +76,20 @@ missing device fails visibly rather than falling back, and `--list-devices` list
 the options. Local means the computer running MA-TUI — over SSH, audio does not
 follow you to the SSH client.
 
+Local startup volume defaults to 50 percent; a saved `volume` setting overrides
+it. Isolated ALSA underruns and a known transient timing-query error can recover
+without reconnecting if output callbacks resume. Repeated errors, stalled
+callbacks or other output stream
+failures trigger up to three delayed recovery attempts, preserving the current
+volume, mute and delay while discarding buffered audio. If recovery fails,
+**F2**, then **Esc**, restarts the local speaker.
+The optional `output_buffer_frames` setting requests 256–8192 output frames per
+channel; omit it to keep the audio backend's default buffer size. Larger buffers
+can help underruns at the cost of added latency.
+For output or realtime-scheduling problems, see
+[local audio troubleshooting](docs/audio-troubleshooting.md). RTKit is optional
+host support, installed separately when needed; it is not bundled as a daemon.
+
 Non-secret settings live at `$XDG_CONFIG_HOME/ma-tui/config.toml` (mode 0600);
 `--config PATH` selects another file and `--init` creates one without overwriting
 an existing file. Keep `player_id` unchanged to retain the same Music Assistant

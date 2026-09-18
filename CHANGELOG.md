@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.9.3 — 2026-09-17
+
+- Recover from local audio output stream failures automatically, with up to
+  three delayed retries. Each attempt reopens the configured output and
+  reconnects the local speaker, discards stale audio, and preserves the current
+  volume, mute and delay. Persistent failures remain visible.
+- Keep the stream connected after isolated recovered output underruns, and
+  monitor callback progress so a stalled output enters bounded recovery.
+- Allow the exact transient ALSA `snd_pcm_avail_delay` I/O error a bounded
+  recovery period, requiring fresh callbacks before treating it as recovered.
+  Repeated errors cannot extend the deadline; unknown I/O errors remain fatal
+  to the current stream.
+- Show local output format, callback frames and gaps, underrun counts and
+  timing-error recovery counts, backend and pending recovery in diagnostics.
+- Add optional `output_buffer_frames` configuration (256–8192 frames per
+  channel), retaining the audio backend's default when omitted.
+- Keep polling player and queue state every two seconds until the event stream
+  connects and authenticates. A socket that never opens no longer leaves the
+  interface waiting thirty seconds between updates.
+- Report an incomplete **Unplayed podcasts** list when any show's episodes
+  cannot be loaded, instead of silently displaying an empty or partial result.
+- Refresh **Unplayed podcasts** when listening progress changes, including
+  episodes marked played or unplayed in another client.
+- Default local startup volume to 50 percent. Explicitly saved volume settings
+  are preserved.
+- Declare RTKit as an optional Arch dependency and document host audio
+  scheduling support for native and Flatpak installations.
+- Build the optimized release executable on GitHub Actions and verify its
+  source, lockfile and binary identity before packaging. Release build metadata
+  records the actual compiler and GitHub run.
+
 ## 0.9.2 — 2026-09-17
 
 - Add a screenshot to the README.

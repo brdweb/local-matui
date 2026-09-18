@@ -696,3 +696,96 @@ async fn unplayed_episodes_are_gathered_across_every_show() {
     );
     task.abort();
 }
+
+#[tokio::test]
+async fn failed_episode_reads_are_reported_instead_of_an_empty_unplayed_list() {
+    use ma_tui::music::Target;
+    let (url, task) = server(vec![
+        ok(json!([
+            {"item_id":"s1","provider":"abs"},
+            {"item_id":"s2","provider":"abs"},
+        ])),
+        (503, "{}".into()),
+        (503, "{}".into()),
+    ])
+    .await;
+    let error = ApiClient::new(&url, "test-secret")
+        .unwrap()
+        .browse(&Target::UnplayedEpisodes)
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("2 of 2 shows"), "{error}");
+    assert!(error.contains("HTTP 503"), "{error}");
+    assert_eq!(task.await.unwrap().len(), 3);
+}
+
+#[tokio::test]
+async fn partially_failed_unplayed_reads_are_reported_even_after_the_item_limit() {
+    use ma_tui::music::Target;
+    // The first successful show fills the shelf. A later failure must still
+    // be visible instead of being hidden by truncating the successful rows.
+    let episodes: Vec<_> = (0..300)
+        .map(|index| json!({"name":format!("Episode {index}"),"fully_played":false}))
+        .collect();
+    let (url, task) = server(vec![
+        ok(json!([
+            {"item_id":"s1","provider":"abs"},
+            {"item_id":"s2","provider":"abs"},
+        ])),
+        ok(json!(episodes)),
+        (503, "{}".into()),
+    ])
+    .await;
+    let error = ApiClient::new(&url, "test-secret")
+        .unwrap()
+        .browse(&Target::UnplayedEpisodes)
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("incomplete"), "{error}");
+    assert!(error.contains("1 of 2 shows"), "{error}");
+    assert_eq!(task.await.unwrap().len(), 3);
+}
+
+#[tokio::test]
+async fn malformed_episode_listings_are_reported_as_failed_reads() {
+    use ma_tui::music::Target;
+    let (url, task) = server(vec![
+        ok(json!([{"item_id":"s1","provider":"abs"}])),
+        ok(json!({"unexpected":"response"})),
+    ])
+    .await;
+    let error = ApiClient::new(&url, "test-secret")
+        .unwrap()
+        .browse(&Target::UnplayedEpisodes)
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("1 of 1 shows"), "{error}");
+    assert!(error.contains("Invalid podcast episode listing"), "{error}");
+    assert_eq!(task.await.unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn empty_subscriptions_and_empty_episode_listings_remain_successful() {
+    use ma_tui::music::Target;
+    for replies in [
+        vec![ok(json!([]))],
+        vec![
+            ok(json!([{"item_id":"s1","provider":"abs"}])),
+            ok(json!([])),
+        ],
+    ] {
+        let expected_requests = replies.len();
+        let (url, task) = server(replies).await;
+        let (items, next) = ApiClient::new(&url, "test-secret")
+            .unwrap()
+            .browse(&Target::UnplayedEpisodes)
+            .await
+            .unwrap();
+        assert!(items.is_empty());
+        assert_eq!(next, None);
+        assert_eq!(task.await.unwrap().len(), expected_requests);
+    }
+}

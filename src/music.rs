@@ -333,6 +333,7 @@ impl Browser {
         matches!(
             self.page.target,
             Target::InProgress
+                | Target::UnplayedEpisodes
                 | Target::Podcast { .. }
                 | Target::Library {
                     kind: Kind::Podcasts | Kind::Audiobooks,
@@ -453,30 +454,41 @@ impl ApiClient {
 
         let listings = futures_util::stream::iter(shows)
             .map(|(id, provider)| async move {
-                self.command(
-                    "music/podcasts/podcast_episodes",
-                    json!({"item_id":id,"provider_instance_id_or_domain":provider}),
-                )
-                .await
-                .ok()
+                let listing = self
+                    .command(
+                        "music/podcasts/podcast_episodes",
+                        json!({"item_id":id,"provider_instance_id_or_domain":provider}),
+                    )
+                    .await?;
+                let mut episodes: Vec<Media> = listing
+                    .as_array()
+                    .ok_or_else(|| anyhow!("Invalid podcast episode listing"))?
+                    .iter()
+                    .map(|episode| Media::parse(episode, "podcast_episode"))
+                    .filter(|episode| !episode.fully_played)
+                    .collect();
+                // Within a show the newest episode is the one to reach for,
+                // and position is the only ordering 2.10.2 gives us.
+                episodes.reverse();
+                Ok::<_, anyhow::Error>(episodes)
             })
             .buffered(CONCURRENT_SHOWS)
             .collect::<Vec<_>>()
             .await;
 
+        // The browser has one success/error state, so do not present a partial
+        // shelf as a complete list. Check every read before the item limit can
+        // hide a failure in a later show. The usual browser retry reloads all.
+        if let Some(error) = listings.iter().find_map(|listing| listing.as_ref().err()) {
+            let failed = listings.iter().filter(|listing| listing.is_err()).count();
+            return Err(anyhow!(
+                "Unplayed podcast list incomplete: could not load episodes for {failed} of {} shows ({error})",
+                listings.len()
+            ));
+        }
         let mut items = Vec::new();
-        for listing in listings.into_iter().flatten() {
-            let mut episodes: Vec<Media> = listing
-                .as_array()
-                .into_iter()
-                .flatten()
-                .map(|episode| Media::parse(episode, "podcast_episode"))
-                .filter(|episode| !episode.fully_played)
-                .collect();
-            // Within a show the newest episode is the one to reach for, and
-            // position is the only ordering 2.10.2 gives for an episode.
-            episodes.reverse();
-            items.extend(episodes);
+        for listing in listings {
+            items.extend(listing?);
             if items.len() >= MAX_UNPLAYED {
                 items.truncate(MAX_UNPLAYED);
                 break;

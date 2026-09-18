@@ -210,6 +210,7 @@ async fn main() -> Result<()> {
                     player_id: config.player_id.clone(),
                     player_name: config.player_name.clone(),
                     device_id: config.device_id.clone(),
+                    output_buffer_frames: config.output_buffer_frames,
                     volume: config.volume,
                     muted: false,
                 },

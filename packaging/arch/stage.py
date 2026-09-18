@@ -9,11 +9,15 @@ import json
 import re
 import shutil
 import subprocess
+import sys
 import tarfile
 import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / 'packaging'))
+from build_input import select_build_input
+
 STAGE = ROOT / '.tools/arch-package'
 
 
@@ -22,7 +26,8 @@ def command(*args):
 
 
 def stage():
-    binary = ROOT / 'target/release/ma-tui'
+    build_input = select_build_input(ROOT)
+    binary = build_input.binary
     version = tomllib.loads((ROOT / 'Cargo.toml').read_text())['package']['version']
     assert re.fullmatch(r'\d+\.\d+\.\d+(?:-beta\.\d+)?', version), version
     pkgver = version.replace('-', '')
@@ -60,13 +65,14 @@ def stage():
         inventory.append({'name': p['name'], 'version': p['version'],
                           'declared_license': p['license'], 'repository': p['repository'],
                           'unmodified_source': f"https://crates.io/api/v1/crates/{p['name']}/{p['version']}/download"})
-    rust_docs = Path(command('rustc', '--print', 'sysroot').strip()) / 'share/doc/rust'
+    rust_docs = build_input.rust_runtime
     shutil.copytree(rust_docs / 'licenses', notices / 'rust-runtime/licenses')
     shutil.copyfile(rust_docs / 'COPYRIGHT-library.html', notices / 'rust-runtime/COPYRIGHT-library.html')
     (notices / 'inventory.json').write_text(json.dumps(inventory, indent=2) + '\n')
     with tarfile.open(STAGE / 'THIRD-PARTY-NOTICES.tar.gz', 'w:gz') as archive:
         archive.add(notices, arcname='third-party')
     for source, name in [(binary, 'ma-tui'), (ROOT / 'README.md', 'README.md'),
+                         (ROOT / 'docs/audio-troubleshooting.md', 'audio-troubleshooting.md'),
                          (ROOT / 'LICENSE', 'LICENSE'),
                          (ROOT / 'packaging/ma-tui.desktop', 'ma-tui.desktop'),
                          (ROOT / 'packaging/arch/DEVELOPMENT-STATUS', 'DEVELOPMENT-STATUS')]:
@@ -75,8 +81,9 @@ def stage():
     (STAGE / 'INSTALL.txt').write_text(install.replace('@VERSION@', version).replace('@PACKAGE@', package).replace('@GLIBC@', glibc))
     (STAGE / 'PACKAGE-NAME').write_text(package + '\n')
     (STAGE / 'VERSION').write_text(version + '\n')
+    (STAGE / 'BUILD-INPUT.json').write_text(json.dumps(build_input.metadata, indent=2) + '\n')
     (STAGE / 'ma-tui').chmod(0o755)
-    sources = ['ma-tui', 'ma-tui.desktop', 'README.md', 'INSTALL.txt', 'THIRD-PARTY-NOTICES.tar.gz', 'DEVELOPMENT-STATUS', 'LICENSE']
+    sources = ['ma-tui', 'ma-tui.desktop', 'README.md', 'audio-troubleshooting.md', 'INSTALL.txt', 'THIRD-PARTY-NOTICES.tar.gz', 'DEVELOPMENT-STATUS', 'LICENSE']
     sums = ' '.join("'" + hashlib.sha256((STAGE / name).read_bytes()).hexdigest() + "'" for name in sources)
     template = (ROOT / 'packaging/arch/PKGBUILD.in').read_text()
     (STAGE / 'PKGBUILD').write_text(template.replace('@GLIBC@', glibc).replace('@PKGVER@', pkgver).replace('@SHA256SUMS@', sums))

@@ -1,11 +1,11 @@
 # Flatpak bundle
 
-Download `ma-tui-v0.9.0-linux-x86_64.flatpak` and `SHA256SUMS` from
+Download `ma-tui-v0.9.3-linux-x86_64.flatpak` and `SHA256SUMS` from
 the GitHub release, then run:
 
 ```sh
 sha256sum --ignore-missing -c SHA256SUMS
-flatpak install --user ./ma-tui-v0.9.0-linux-x86_64.flatpak
+flatpak install --user ./ma-tui-v0.9.3-linux-x86_64.flatpak
 flatpak run io.github.brdweb.MaTui
 ```
 
@@ -34,9 +34,17 @@ Omarchy theme locations are not exposed automatically. No window-system or
 full-session-bus permission is requested. The runtime's default ALSA output
 routes through PulseAudio; use the desktop mixer to select the physical output.
 
+Realtime scheduling is provided by the host audio stack. If it needs RTKit,
+install your distribution's `rtkit` package on the host; the Flatpak does not
+bundle or start the system daemon. PipeWire also supports configured realtime
+limits, and sandbox clients can use the Realtime portal where their audio
+backend supports it. MA-TUI does not grant full system-bus access for RTKit.
+See [local audio troubleshooting](../../docs/audio-troubleshooting.md).
+The bundle includes it at `/app/share/doc/ma-tui/audio-troubleshooting.md`.
+
 ## Build and verify
 
-Prerequisites: native release build, `flatpak`, installed
+Prerequisites: a native release executable (local or GitHub-built), `flatpak`, installed
 `org.freedesktop.Platform//26.08`, C compiler, `pkg-config`, libsecret development
 headers and `desktop-file-validate`. No flatpak-builder or compiler SDK is needed.
 
@@ -44,7 +52,7 @@ headers and `desktop-file-validate`. No flatpak-builder or compiler SDK is neede
 cargo build --release --locked
 python3 packaging/arch/stage.py
 python3 packaging/flatpak/build.py
-flatpak install --user --noninteractive .tools/flatpak-package/ma-tui-v0.9.0-linux-x86_64.flatpak
+flatpak install --user --noninteractive .tools/flatpak-package/ma-tui-v0.9.3-linux-x86_64.flatpak
 flatpak run io.github.brdweb.MaTui --version
 flatpak run io.github.brdweb.MaTui --demo --snapshot
 flatpak run io.github.brdweb.MaTui --list-devices
@@ -55,6 +63,11 @@ The verifier needs Cargo, `uv`, an unlocked desktop keyring and a working
 PulseAudio output. It runs local protocol/terminal fixtures and a silent real
 audio stream; it never connects to your Music Assistant server. Do not run
 another instance of this Flatpak during the SIGTERM fixture.
+
+For a verified GitHub Actions build, set `MA_TUI_CI_BUILD` to the extracted
+`ma-tui-release-build` artifact directory instead of running the local Cargo
+build. Keep that setting for Arch staging, Flatpak building and final bundling;
+the scripts require its source commit, lockfile and executable hashes to match.
 
 The builder stages only allowlisted binary, helper, docs and notices, verifies
 its pinned source download, and records binary/helper/runtime identities. It

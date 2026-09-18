@@ -46,6 +46,8 @@ pub struct Config {
     pub player_id: String,
     pub player_name: String,
     pub device_id: Option<String>,
+    /// Requested output frames per channel; omitted to use the backend default.
+    pub output_buffer_frames: Option<u32>,
     pub local_playback: bool,
     pub volume: u8,
     /// Switch to `blocks` if the terminal font has no braille glyphs.
@@ -61,8 +63,9 @@ impl Default for Config {
             player_id: format!("ma-tui-{}", uuid::Uuid::new_v4()),
             player_name: "MA-TUI".into(),
             device_id: None,
+            output_buffer_frames: None,
             local_playback: false,
-            volume: 30,
+            volume: 50,
             spectrum: Spectrum::default(),
             album_art: AlbumArt::default(),
         }
@@ -104,6 +107,12 @@ impl Config {
             .map_err(|_| anyhow::anyhow!("Invalid configuration TOML or unknown setting"))?;
         if value.volume > 100 {
             bail!("Volume must be between 0 and 100");
+        }
+        if value
+            .output_buffer_frames
+            .is_some_and(|frames| !(256..=8192).contains(&frames))
+        {
+            bail!("Output buffer frames must be between 256 and 8192");
         }
         let url =
             url::Url::parse(&value.server).map_err(|_| anyhow::anyhow!("Invalid server URL"))?;

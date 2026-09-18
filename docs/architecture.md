@@ -24,6 +24,33 @@ local audio registers an endpoint but does not issue a play command; MA may send
 audio to that endpoint independently, including when a prior queue resumes.
 No automatic fallback from missing explicit headphones/DAC to system speakers.
 
+The pinned CPAL ALSA backend prepares its output after reporting an XRUN. An
+isolated exact XRUN diagnostic therefore keeps the stream connected while
+MA-TUI waits for a subsequent callback. The exact pinned ALSA
+`snd_pcm_avail_delay` EIO diagnostic also gets a bounded grace period: the
+Pulse ALSA adapter can report it while timing information is unavailable. Each
+new report refreshes the callback baseline, never the first-error deadline;
+only a later poll without a new error and with an advanced callback count proves
+recovery. Three distinct timing-error episodes within ten seconds trigger
+rebuilding. All other errors remain failures. Three
+observed XRUNs within ten seconds, absent startup callbacks, or callbacks that
+stop advancing escalate to output recovery. The watchdog allows one second
+between callbacks and twice that for startup, extending those bounds for large
+requested or observed callback periods. Atomic callback telemetry also reports
+the backend, format, frame bounds, largest gap and observed/recovered XRUN and
+timing-error episode counts in the
+ready status. It measures output callback progress, not acoustic output.
+
+Local device-stream failures that require rebuilding end the current transport
+and worker, then retry up to three times after 250 ms, 500 ms and one second.
+Each attempt recreates the
+same configured output on a new worker, rereads its supported formats and
+renegotiates Sendspin with fresh channels. Volume, mute and static delay survive
+recovery; decoded samples and decoder state do not. The retry budget resets after
+30 seconds of initialized worker operation. Decoder errors, queue-bound failures
+and worker panics remain fatal. Shutdown interrupts retry delays, and an output
+whose worker cannot finish within two seconds is not reopened concurrently.
+
 ## Versioned integration references
 
 - MA HTTP handler: https://github.com/music-assistant/server/tree/2.10.2/music_assistant/controllers/webserver
