@@ -6,7 +6,7 @@ Install on your LOCAL Omarchy computer, not inside the SSH session:
     sudo pacman -U ./@PACKAGE@
     ma-tui --demo
 
-This is an unsigned private package. Do not disable signature checking globally.
+This is an unsigned standalone package. Do not disable signature checking globally.
 If your local package signature policy rejects it, stop and review that policy
 rather than bypassing it. Dependencies are declared for pacman's normal checks.
 
@@ -14,6 +14,16 @@ Requires glibc >= @GLIBC@, gcc-libs, alsa-lib, ca-certificates and libsecret. Pi
 routing uses pipewire-alsa (optional package; ordinarily part of desktop audio
 setup). Do not use --nodeps or --overwrite to force installation. No compiler,
 Rust toolchain, Python runtime or separate Sendspin executable is needed.
+
+RTKit is optional host support for realtime audio scheduling. If your desktop's
+audio logs report unavailable realtime scheduling and you have no alternative
+realtime configuration, install the distribution package separately:
+
+    sudo pacman -S --needed rtkit
+
+RTKit is a D-Bus-activated system service; it is not embedded in MA-TUI or the
+Linux archive. MA-TUI does not install or restart audio services. Missing RTKit
+alone does not establish the cause of an audio stream error.
 
 Configure (run as your normal desktop user, NOT sudo):
 
@@ -49,8 +59,9 @@ If migrating from a user installation to the Arch package, ~/.local/bin/ma-tui m
 take precedence over /usr/bin/ma-tui. Check with 'command -v ma-tui' and remove or
 rename only the old user executable after validating the package installation.
 
-The executable was compiled on the development host and wrapped using Arch
-makepkg. It is not an Arch source rebuild or an official repository/AUR package.
+The release BUILDINFO.json records the executable build origin and compiler.
+Arch makepkg wraps that executable; it is not an Arch source rebuild or an
+official repository/AUR package.
 Live local and remote playback on Music Assistant 2.10.2 is confirmed on the
 development laptop. Other hardware, prolonged playback, server restart during
 streaming, codec/format transitions and multi-room sync are not covered by the

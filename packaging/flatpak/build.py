@@ -6,12 +6,16 @@ import re
 import shlex
 import shutil
 import subprocess
+import sys
 import tarfile
 import tomllib
 import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / 'packaging'))
+from build_input import select_build_input
+
 WORK = ROOT / '.tools/flatpak-package'
 STAGE = ROOT / '.tools/arch-package'
 APP = 'io.github.brdweb.MaTui'
@@ -43,8 +47,8 @@ def version_tuple(text, pattern):
 
 
 def check_runtime_compatibility(binary):
-    """The bundle ships a host-built executable, so the build host's glibc must
-    not be newer than the runtime's. Report that directly instead of leaving a
+    """The selected executable's glibc must not be newer than the runtime's.
+    Report that directly instead of leaving a
     missing-symbol failure to the first sandboxed run."""
     needs = version_tuple(run('readelf', '--version-info', str(binary)), r'GLIBC_(\d+)\.(\d+)')
     provides = version_tuple(
@@ -58,9 +62,10 @@ def check_runtime_compatibility(binary):
 
 
 def main():
+    build_input = select_build_input(ROOT)
     version = tomllib.loads((ROOT / 'Cargo.toml').read_text())['package']['version']
     assert (STAGE / 'VERSION').read_text().strip() == version
-    assert sha(STAGE / 'ma-tui') == sha(ROOT / 'target/release/ma-tui')
+    build_input.check_stage(STAGE)
     assert sha(STAGE / 'LICENSE') == sha(ROOT / 'LICENSE'), 'Staged license is stale'
     check_runtime_compatibility(STAGE / 'ma-tui')
     WORK.mkdir(parents=True, exist_ok=True)
@@ -99,7 +104,9 @@ def main():
     docs = files / 'share/doc/ma-tui'
     docs.mkdir(parents=True)
     shutil.copy2(ROOT / 'packaging/flatpak/README.md', docs / 'README.md')
+    shutil.copy2(ROOT / 'docs/audio-troubleshooting.md', docs / 'audio-troubleshooting.md')
     metadata = {
+        **build_input.metadata,
         'version': version, 'app_id': APP, 'branch': BRANCH_NAME,
         'runtime': f'{RUNTIME}/x86_64/{BRANCH}',
         'runtime_commit': run('flatpak', 'info', '--show-commit', f'{RUNTIME}//{BRANCH}'),

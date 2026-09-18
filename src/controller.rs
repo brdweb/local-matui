@@ -115,8 +115,9 @@ impl Controller {
         let (tx, updates) = mpsc::channel(16);
         let task = tokio::spawn(async move {
             let mut events = events;
-            let mut interval =
-                tokio::time::interval(if events.is_some() { POLL_LIVE } else { POLL });
+            // Having a receiver does not mean the socket connected or
+            // authenticated. Poll until the stream explicitly reports Online.
+            let mut interval = tokio::time::interval(POLL);
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             // The queue the last read was about, so an event for some other
             // player's queue costs nothing.

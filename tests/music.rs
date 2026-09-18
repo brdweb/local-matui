@@ -381,6 +381,41 @@ fn a_progress_event_refreshes_at_most_one_listing_at_a_time() {
     );
 }
 
+#[test]
+fn unplayed_episodes_refresh_on_progress_changes_and_keep_the_existing_throttle() {
+    use std::time::{Duration, Instant};
+    let now = Instant::now();
+    let mut browser = Browser::default();
+    browser.navigate(Target::UnplayedEpisodes, "Unplayed podcasts".into());
+    browser.apply(browser.generation, Ok((vec![track()], None)));
+
+    assert_eq!(
+        browser.progress_changed(now),
+        Some(Action::Browse {
+            generation: browser.generation,
+            target: Target::UnplayedEpisodes,
+        })
+    );
+    assert_eq!(
+        browser.progress_changed(now + Duration::from_secs(4)),
+        None,
+        "an outstanding shelf refresh cannot start a second batch of requests"
+    );
+    browser.apply(browser.generation, Ok((vec![], None)));
+    assert!(browser.page.items.is_empty(), "a played episode is removed");
+    assert_eq!(
+        browser.progress_changed(now + Duration::from_millis(500)),
+        None,
+        "progress bursts remain throttled"
+    );
+    assert!(
+        browser
+            .progress_changed(now + Duration::from_secs(4))
+            .is_some(),
+        "a later change refreshes even when the shelf is now empty"
+    );
+}
+
 /// A row says what the item belongs to, which is a different question per
 /// media type — and never a provider instance id, which means nothing.
 #[test]

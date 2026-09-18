@@ -18,6 +18,12 @@ docker run --rm -e BUILD_UID="$(id -u)" \
   archlinux:base bash /verify.sh
 ```
 
+To package a GitHub-built executable, set `MA_TUI_CI_BUILD` to the extracted
+`ma-tui-release-build` artifact directory and omit the local Cargo build. The
+source commit/tree, version, lockfile and binary hash must match the checkout.
+The artifact supplies its own compiler/runtime notices; the local compiler is
+not recorded as the origin of a CI-built executable.
+
 `stage.py` copies an explicit allowlist, checks the executable version/architecture,
 derives the glibc symbol requirement with readelf, and generates source checksums.
 It gathers shipped license/notice files and source links for the locked Linux
@@ -57,7 +63,7 @@ the base image alone does not make that update or the binary build reproducible.
 host. `Cargo.lock` and the generated PKGBUILD source checksum identify the inputs.
 
 The result is named in `.tools/arch-package/PACKAGE-NAME`; for this release it is
-`ma-tui-0.9.0-1-x86_64.pkg.tar.zst`. Version, glibc requirement and install
+`ma-tui-0.9.3-1-x86_64.pkg.tar.zst`. Version, glibc requirement and install
 instructions are derived from the manifest and built executable. The desktop
 launcher is included and validated during package installation.
 Copy only a successfully verified package into ignored `dist/`, and create its

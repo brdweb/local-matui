@@ -1,7 +1,8 @@
 # Releases
 
-Releases require explicit user authorization. The current release is `v0.9.1`.
-`v0.9.0` was the first as ma-tui and the first that was not a beta. `v0.1.0-beta.2` was
+Releases require explicit user authorization. This tree targets `v0.9.3`;
+the previous release is `v0.9.2`.
+`v0.9.0` was the first as ma-tui. `v0.1.0-beta.2` was
 published as local-matui before the rename, and `v0.1.0-beta.1` under that same
 former name and withdrawn the same day; its tag and assets were deleted rather
 than rewritten. MA-TUI is MIT licensed; include the root LICENSE in all new
@@ -22,8 +23,15 @@ a stable/latest release; a release that is one may be.
    the silent default-output fixture. See packaging/flatpak/README.md.
 4. Commit and push the release preparation, review/merge the PR into main, and
    verify that the merged source tree equals the tested feature tree. Use a clean
-   main checkout for `cargo build --release --locked` and
-   `python3 packaging/release.py`. The bundler checks binary/package identity.
+   main checkout. For a GitHub-built release, wait for that exact main commit
+   to pass CI and the advisory audit, then download its `ma-tui-release-build`
+   artifact and extract its tarball into a private staging directory. Export
+   `MA_TUI_CI_BUILD` to that directory, rerun package staging/build/verification
+   with the downloaded executable, and run `python3 packaging/release.py`.
+   The scripts validate CI commit/tree, version, lockfile, executable hash and
+   compiler/runtime notice identity. BUILDINFO records the GitHub run and the
+   actual compiler. Without that variable, a local `cargo build --release
+   --locked` remains supported. The bundler checks binary/package identity.
 5. Create and push an annotated `v<version>` tag at that main commit. Create a
    GitHub draft release with `--verify-tag`, adding `--prerelease --latest=false`
    for a beta and neither for a release that is not one. Upload only the
@@ -43,6 +51,65 @@ does not have: `0.9.0` is used as is. The package is unsigned and no AUR or
 distribution-repository publication is implied. No service is deployed. The
 Flatpak application branch is `stable`; it was `beta` while the releases were,
 and a ref is not upgraded across branches.
+
+## 0.9.3 validation (2026-09-17)
+
+The release was prepared and tested locally before GitHub publication was
+authorized. The audio changes keep isolated
+ALSA underruns and the exact transient `snd_pcm_avail_delay` I/O error connected
+when new callbacks prove recovery. Persistent errors, repeated recovery
+episodes, and stalled callbacks still trigger bounded rebuilding. Diagnostics
+show the backend, format, callback sizes/gaps and recovery counts; optional
+`output_buffer_frames` preserves the backend default when omitted. RTKit is an
+optional Arch host dependency, with guidance shipped in every package.
+
+Validation on the final source and rebuilt packages:
+
+- Formatting and strict Clippy passed; all ordinary Rust targets passed with
+  156 tests and 14 ignored. Seven opt-in native audio tests passed, covering
+  ALSA null, actual default output and requested 1024/2048-frame buffers.
+- Deterministic health tests cover isolated, repeated and persistent XRUN/EIO
+  reports, exact error matching, callback startup/stalls, slow periods, mixed
+  errors and deadlines that repeated reports cannot extend. Existing reconnect,
+  missing-device, cancellation, configuration and gain-preservation tests pass.
+- The optimized 0.9.3 binary passed all five native terminal fixtures: quit,
+  SIGTERM, connected controller, password settings and token settings.
+- The rebuilt Arch package passed installation, integrity, packaged-guide
+  identity, startup, terminal/controller fixtures and removal in a container.
+- The rebuilt Flatpak passed installed bundle/binary/helper/guide identity,
+  configuration isolation, theme access, a disposable real keyring round trip,
+  terminal/controller fixtures, callback monitoring on ALSA null, and all four
+  null/default/1024/2048 endpoint fixtures in a separate installation.
+- Three further silent runs on the physical default output passed. Two
+  reproduced the original timing error and reported `timing 1/1 recovered`,
+  with 512-frame callbacks continuing at about 11 ms maximum gap. An earlier
+  retaining-stream probe independently measured recovery within 10–20 ms.
+  These are silent runtime checks, not prolonged audible playback evidence.
+
+The original installed app commit was preserved. Its earlier running instance
+had already exited before the final checks; the pre-existing instance set was
+unchanged by verification. Logs and package identities are in
+`.tools/release-0.9.3-prep/` and
+`.tools/flatpak-093-verify/ISOLATED-VERIFICATION.json`.
+The standard Flatpak verifier also passed against that isolated installation;
+`.tools/flatpak-package/VERIFIED.json` matches the final bundle and binary.
+
+The settings fixtures pass but their HTTP-only test handlers emit background
+assertion tracebacks for the event client's `/ws` requests. This is fixture
+noise, not a clean validation of the WebSocket path; dedicated event/controller
+fixtures cover stream behavior separately.
+
+The precommit candidates established the runtime checks above. GitHub publication
+uses the optimized executable built by the main-branch CI run, followed by
+package verification of that exact artifact. Final bundling requires a clean
+committed tree, records HEAD in BUILDINFO and archives that commit as the source
+asset. Native/Arch/Flatpak packages share the verified executable; the Flatpak's
+libsecret helper and the packaging wrappers are built locally. No signing or
+reproducible-build attestation is implied.
+
+Prolonged audible playback and recovery after a physical-device failure remain
+separate checks. Silent callback tests do not establish audible reliability,
+acoustic latency or multi-room synchronization.
 
 ## 0.9.1 validation (2026-09-16)
 

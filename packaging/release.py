@@ -6,7 +6,6 @@ allowlist enters the binary archive; source comes from git archive, never cwd.
 """
 import hashlib
 import json
-import platform
 import re
 import shutil
 import subprocess
@@ -14,6 +13,8 @@ import tarfile
 import tomllib
 from datetime import datetime, timezone
 from pathlib import Path
+
+from build_input import select_build_input
 
 ROOT = Path(__file__).resolve().parents[1]
 STAGE = ROOT / '.tools/arch-package'
@@ -33,10 +34,11 @@ def main():
     # Matches stage.py: a release may or may not carry a prerelease suffix.
     assert re.fullmatch(r'\d+\.\d+\.\d+(?:-beta\.\d+)?', version), version
     assert (STAGE / 'VERSION').read_text().strip() == version
-    binary = ROOT / 'target/release/ma-tui'
-    assert command(str(binary), '--version') == f'ma-tui {version}'
-    assert digest(binary) == digest(STAGE / 'ma-tui'), 'Staged executable is stale'
+    build_input = select_build_input(ROOT)
+    binary = build_input.binary
+    build_input.check_stage(STAGE)
     assert digest(ROOT / 'README.md') == digest(STAGE / 'README.md'), 'Staged README is stale'
+    assert digest(ROOT / 'docs/audio-troubleshooting.md') == digest(STAGE / 'audio-troubleshooting.md'), 'Staged audio troubleshooting guide is stale'
     assert digest(ROOT / 'LICENSE') == digest(STAGE / 'LICENSE'), 'Staged license is stale'
     package_name = (STAGE / 'PACKAGE-NAME').read_text().strip()
     assert package_name == f"ma-tui-{version.replace('-', '')}-1-x86_64.pkg.tar.zst"
@@ -50,6 +52,8 @@ def main():
     flatpak_info = json.loads((flatpak_stage / 'BUILDINFO.json').read_text())
     assert flatpak_info['version'] == version
     assert flatpak_info['binary_sha256'] == digest(binary)
+    for key, value in build_input.metadata.items():
+        assert flatpak_info[key] == value, f'Flatpak build provenance differs: {key}'
     assert flatpak_info['bundle_sha256'] == digest(flatpak)
     # The installed bundle, not just its build directory, must have been verified.
     verified = json.loads((flatpak_stage / 'VERIFIED.json').read_text())
@@ -60,21 +64,15 @@ def main():
     destination.mkdir(parents=True, exist_ok=True)
     versions = re.findall(r'GLIBC_(\d+)\.(\d+)', command('readelf', '--version-info', str(binary)))
     manifest = {
-        'version': version,
-        'commit': command('git', 'rev-parse', 'HEAD'),
-        'source_tree': command('git', 'rev-parse', 'HEAD^{tree}'),
+        **build_input.metadata,
         'created_utc': datetime.now(timezone.utc).isoformat(),
-        'target': 'x86_64-unknown-linux-gnu',
-        'build_machine': platform.machine(),
-        'rustc': command('rustc', '--version'),
-        'cargo': command('cargo', '--version'),
         'minimum_glibc': '.'.join(map(str, max(tuple(map(int, v)) for v in versions))),
         'cargo_lock_sha256': digest(ROOT / 'Cargo.lock'),
         'binary_sha256': digest(binary),
         'arch_package_sha256': digest(package),
         'sendspin': '0.3.7',
         'flatpak': flatpak_info,
-        'notice': 'Native Linux build wrapped with Arch makepkg; not a reproducible-build or signing attestation.',
+        'notice': 'Selected native Linux build wrapped with Arch makepkg and Flatpak; build_origin identifies the Rust build. This is not a reproducible-build or signing attestation.',
     }
     manifest_path = destination / 'BUILDINFO.json'
     manifest_path.write_text(json.dumps(manifest, indent=2) + '\n')
@@ -82,6 +80,7 @@ def main():
     with tarfile.open(archive_path, 'w:gz') as archive:
         for name in ['ma-tui', 'ma-tui.desktop', 'README.md', 'INSTALL.txt', 'DEVELOPMENT-STATUS', 'LICENSE', 'third-party']:
             archive.add(STAGE / name, arcname=f'{prefix}/{name}')
+        archive.add(STAGE / 'audio-troubleshooting.md', arcname=f'{prefix}/docs/audio-troubleshooting.md')
         archive.add(manifest_path, arcname=f'{prefix}/BUILDINFO.json')
     source_path = destination / f'{prefix}-source.tar.gz'
     subprocess.run(['git', 'archive', '--format=tar.gz', f'--prefix={prefix}/',

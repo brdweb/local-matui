@@ -124,6 +124,7 @@ fn config(base: String) -> audio::AudioConfig {
         player_id: "fixture-id".into(),
         player_name: "Fixture".into(),
         device_id: None,
+        output_buffer_frames: None,
         volume: 37,
         muted: true,
     }
@@ -398,9 +399,10 @@ async fn stream_end_invalidates_audio_already_queued_to_worker() {
         );
         assert_eq!(log.last().unwrap(), "clear");
     });
-    let handle =
-        audio::start_with_output(config(base), move || Ok(SlowFixture(FixtureOutput(output))))
-            .unwrap();
+    let handle = audio::start_with_output(config(base), move || {
+        Ok(SlowFixture(FixtureOutput(output.clone())))
+    })
+    .unwrap();
     let result = tokio::time::timeout(Duration::from_secs(3), fixture).await;
     handle.shutdown().await;
     result.unwrap().unwrap();
@@ -453,7 +455,8 @@ async fn rejected_proxy_auth_reconnects_with_backoff_and_shutdown_cancels_wait()
         }
     });
     let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-    let handle = audio::start_with_output(config(base), move || Ok(FixtureOutput(events))).unwrap();
+    let handle =
+        audio::start_with_output(config(base), move || Ok(FixtureOutput(events.clone()))).unwrap();
     let times = tokio::time::timeout(Duration::from_secs(3), wait)
         .await
         .unwrap()
@@ -622,7 +625,7 @@ async fn decoder_failure_reason_survives_worker_shutdown_without_peer_data() {
     });
     let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let mut handle =
-        audio::start_with_output(config(base), move || Ok(FixtureOutput(events))).unwrap();
+        audio::start_with_output(config(base), move || Ok(FixtureOutput(events.clone()))).unwrap();
     tokio::time::timeout(Duration::from_secs(3), async {
         while handle.status.changed().await.is_ok() {}
     })
@@ -661,7 +664,8 @@ async fn worker_error_cancels_in_progress_proxy_handshake() {
     let base = format!("http://{}", listener.local_addr().unwrap());
     let failed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let output = failed.clone();
-    let handle = audio::start_with_output(config(base), move || Ok(FaultFixture(output))).unwrap();
+    let handle =
+        audio::start_with_output(config(base), move || Ok(FaultFixture(output.clone()))).unwrap();
     let (tcp, _) = listener.accept().await.unwrap();
     let mut ws = tokio_tungstenite::accept_async(tcp).await.unwrap();
     fixture_json(&mut ws).await;
@@ -822,4 +826,295 @@ fn proxy_url_preserves_prefix_and_rejects_credentials() {
     ] {
         assert!(audio::proxy_url(bad).is_err());
     }
+}
+
+#[derive(Default)]
+struct RecoveryState {
+    opens: usize,
+    drops: usize,
+    failed: bool,
+    begins: Vec<(usize, u32, u8, bool, u16)>,
+    writes: Vec<(usize, i32)>,
+}
+struct RecoveringOutput {
+    attempt: usize,
+    state: std::sync::Arc<std::sync::Mutex<RecoveryState>>,
+    fail_begin: bool,
+}
+impl Drop for RecoveringOutput {
+    fn drop(&mut self) {
+        self.state.lock().unwrap().drops += 1;
+    }
+}
+impl audio::Output for RecoveringOutput {
+    fn formats(&self) -> anyhow::Result<Vec<sendspin::protocol::messages::AudioFormatSpec>> {
+        let rate = if self.attempt == 1 { 48000 } else { 44100 };
+        Ok(audio::formats_for_ranges(&[(2, rate, rate)]))
+    }
+    fn begin(
+        &mut self,
+        format: sendspin::audio::AudioFormat,
+        _: audio::SharedClock,
+        gain: audio::Gain,
+    ) -> anyhow::Result<()> {
+        self.state.lock().unwrap().begins.push((
+            self.attempt,
+            format.sample_rate,
+            gain.volume,
+            gain.muted,
+            gain.delay,
+        ));
+        if self.fail_begin {
+            anyhow::bail!("Audio output stream creation failed");
+        }
+        Ok(())
+    }
+    fn write(&mut self, buffer: sendspin::audio::AudioBuffer) {
+        self.state
+            .lock()
+            .unwrap()
+            .writes
+            .push((self.attempt, buffer.samples[0]));
+    }
+    fn clear(&mut self) {}
+    fn gain(&mut self, _: audio::Gain) {}
+    fn failed(&self) -> bool {
+        self.state.lock().unwrap().failed
+    }
+    fn recoverable_failure(&self) -> bool {
+        true
+    }
+    fn failure_detail(&self) -> String {
+        "Audio output device reported a stream error: A buffer underrun or overrun occurred.".into()
+    }
+}
+
+async fn recovered_session(
+    ws: &mut tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>,
+) -> serde_json::Value {
+    use tokio_tungstenite::tungstenite::Message as Ws;
+    let auth = fixture_json(ws).await;
+    assert_eq!(auth["client_id"], "fixture-id");
+    assert_eq!(auth["type"], "auth");
+    ws.send(Ws::text(r#"{"type":"auth_ok"}"#)).await.unwrap();
+    let hello = fixture_json(ws).await;
+    ws.send(Ws::text(r#"{"type":"server/hello","payload":{"server_id":"fixture","name":"Fixture","version":1,"active_roles":["player@v1"],"connection_reason":"playback"}}"#)).await.unwrap();
+    hello
+}
+
+#[tokio::test]
+async fn device_failure_reopens_and_renegotiates_without_stale_audio_or_resetting_gain() {
+    use tokio_tungstenite::tungstenite::Message as Ws;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let state = std::sync::Arc::new(std::sync::Mutex::new(RecoveryState::default()));
+    let output = state.clone();
+    let handle = audio::start_with_output(
+        config(format!("http://{}", listener.local_addr().unwrap())),
+        move || {
+            let mut state = output.lock().unwrap();
+            assert_eq!(
+                state.opens, state.drops,
+                "previous output must be released first"
+            );
+            state.opens += 1;
+            state.failed = false;
+            Ok(RecoveringOutput {
+                attempt: state.opens,
+                state: output.clone(),
+                fail_begin: false,
+            })
+        },
+    )
+    .unwrap();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        let (tcp, _) = listener.accept().await.unwrap();
+        let mut ws = tokio_tungstenite::accept_async(tcp).await.unwrap();
+        recovered_session(&mut ws).await;
+        for (command, field, value) in [
+            ("volume", "volume", serde_json::json!(62)),
+            ("mute", "mute", serde_json::json!(false)),
+            ("set_static_delay", "static_delay_ms", serde_json::json!(123)),
+        ] {
+            ws.send(Ws::text(serde_json::json!({"type":"server/command","payload":{"player":{"command":command,field:value}}}).to_string())).await.unwrap();
+            let key = if field == "mute" { "muted" } else { field };
+            loop {
+                let message = fixture_json(&mut ws).await;
+                if message["type"] == "client/state" && message["payload"]["player"][key] == value { break; }
+            }
+        }
+        ws.send(Ws::text(r#"{"type":"stream/start","payload":{"player":{"codec":"pcm","channels":2,"sample_rate":48000,"bit_depth":16}}}"#)).await.unwrap();
+        while state.lock().unwrap().begins.is_empty() { tokio::time::sleep(Duration::from_millis(5)).await; }
+        let mut old = vec![4];
+        old.extend_from_slice(&0_i64.to_be_bytes());
+        old.extend_from_slice(&[1,0,1,0]);
+        ws.send(Ws::Binary(old.clone().into())).await.unwrap();
+        while state.lock().unwrap().writes.is_empty() { tokio::time::sleep(Duration::from_millis(5)).await; }
+        state.lock().unwrap().failed = true;
+        // Old transport may still have chunks queued at the instant of failure.
+        for _ in 0..8 { let _ = ws.send(Ws::Binary(old.clone().into())).await; }
+        let (tcp, _) = listener.accept().await.unwrap();
+        let mut next = tokio_tungstenite::accept_async(tcp).await.unwrap();
+        let hello = recovered_session(&mut next).await;
+        assert_eq!(hello["payload"]["player@v1_support"]["supported_formats"][0]["sample_rate"], 44100);
+        loop {
+            let message = fixture_json(&mut next).await;
+            if message["type"] == "client/state" {
+                assert_eq!(message["payload"]["player"]["volume"], 62);
+                assert_eq!(message["payload"]["player"]["muted"], false);
+                assert_eq!(message["payload"]["player"]["static_delay_ms"], 123);
+                break;
+            }
+        }
+        // Without a new stream/start, even newly received chunks are ignored.
+        let mut fresh = vec![4];
+        fresh.extend_from_slice(&0_i64.to_be_bytes());
+        fresh.extend_from_slice(&[2,0,2,0]);
+        next.send(Ws::Binary(old.into())).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(30)).await;
+        assert!(state.lock().unwrap().writes.iter().all(|(attempt,_)| *attempt == 1));
+        next.send(Ws::text(r#"{"type":"stream/start","payload":{"player":{"codec":"pcm","channels":2,"sample_rate":44100,"bit_depth":16}}}"#)).await.unwrap();
+        while state.lock().unwrap().begins.len() < 2 { tokio::time::sleep(Duration::from_millis(5)).await; }
+        next.send(Ws::Binary(fresh.into())).await.unwrap();
+        while !state.lock().unwrap().writes.iter().any(|(attempt,_)| *attempt == 2) { tokio::time::sleep(Duration::from_millis(5)).await; }
+        let state = state.lock().unwrap();
+        assert_eq!(state.begins[1], (2,44100,62,false,123));
+        assert!(state.writes.iter().filter(|(attempt,_)| *attempt == 2).all(|(_,sample)| *sample == 2 << 16));
+    }).await.unwrap();
+    handle.shutdown().await;
+    let state = state.lock().unwrap();
+    assert_eq!(state.opens, 2);
+    assert_eq!(state.drops, 2);
+}
+
+#[tokio::test]
+async fn device_recovery_is_bounded_and_preserves_final_diagnostic() {
+    let state = std::sync::Arc::new(std::sync::Mutex::new(RecoveryState {
+        failed: true,
+        ..Default::default()
+    }));
+    let output = state.clone();
+    let mut handle = audio::start_with_output(config("http://127.0.0.1:1".into()), move || {
+        let mut state = output.lock().unwrap();
+        assert_eq!(state.opens, state.drops);
+        state.opens += 1;
+        Ok(RecoveringOutput {
+            attempt: state.opens,
+            state: output.clone(),
+            fail_begin: false,
+        })
+    })
+    .unwrap();
+    tokio::time::timeout(Duration::from_secs(4), async {
+        while handle.status.changed().await.is_ok() {}
+    })
+    .await
+    .unwrap();
+    assert_eq!(handle.status.borrow().state, "failed");
+    assert!(handle
+        .status
+        .borrow()
+        .detail
+        .contains("buffer underrun or overrun"));
+    assert_eq!(
+        state.lock().unwrap().opens,
+        4,
+        "initial attempt plus three retries"
+    );
+    handle.shutdown().await;
+}
+
+#[tokio::test]
+async fn shutdown_during_device_recovery_prevents_reopening() {
+    let state = std::sync::Arc::new(std::sync::Mutex::new(RecoveryState {
+        failed: true,
+        ..Default::default()
+    }));
+    let output = state.clone();
+    let mut handle = audio::start_with_output(config("http://127.0.0.1:1".into()), move || {
+        let mut state = output.lock().unwrap();
+        state.opens += 1;
+        Ok(RecoveringOutput {
+            attempt: state.opens,
+            state: output.clone(),
+            fail_begin: false,
+        })
+    })
+    .unwrap();
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while handle.status.borrow().state != "recovering" {
+            handle.status.changed().await.unwrap();
+        }
+    })
+    .await
+    .unwrap();
+    tokio::time::timeout(Duration::from_millis(150), handle.shutdown())
+        .await
+        .unwrap();
+    assert_eq!(state.lock().unwrap().opens, 1);
+    assert_eq!(state.lock().unwrap().drops, 1);
+}
+
+#[tokio::test]
+async fn reopen_errors_retry_same_factory_then_report_missing_selected_device() {
+    let state = std::sync::Arc::new(std::sync::Mutex::new(RecoveryState {
+        failed: true,
+        ..Default::default()
+    }));
+    let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let attempts = calls.clone();
+    let mut handle = audio::start_with_output(config("http://127.0.0.1:1".into()), move || {
+        let attempt = attempts.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        if attempt > 0 {
+            anyhow::bail!("Selected audio output device not found");
+        }
+        Ok(RecoveringOutput {
+            attempt: 1,
+            state: state.clone(),
+            fail_begin: false,
+        })
+    })
+    .unwrap();
+    tokio::time::timeout(Duration::from_secs(4), async {
+        while handle.status.changed().await.is_ok() {}
+    })
+    .await
+    .unwrap();
+    assert_eq!(handle.status.borrow().state, "failed");
+    assert_eq!(
+        handle.status.borrow().detail,
+        "Selected audio output device not found"
+    );
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 4);
+    handle.shutdown().await;
+}
+
+#[tokio::test]
+async fn stream_creation_failure_recreates_output() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let state = std::sync::Arc::new(std::sync::Mutex::new(RecoveryState::default()));
+    let output = state.clone();
+    let handle = audio::start_with_output(
+        config(format!("http://{}", listener.local_addr().unwrap())),
+        move || {
+            let mut state = output.lock().unwrap();
+            state.opens += 1;
+            Ok(RecoveringOutput {
+                attempt: state.opens,
+                state: output.clone(),
+                fail_begin: state.opens == 1,
+            })
+        },
+    )
+    .unwrap();
+    tokio::time::timeout(Duration::from_secs(3), async {
+        let (tcp,_) = listener.accept().await.unwrap();
+        let mut ws = tokio_tungstenite::accept_async(tcp).await.unwrap();
+        recovered_session(&mut ws).await;
+        ws.send(tokio_tungstenite::tungstenite::Message::text(r#"{"type":"stream/start","payload":{"player":{"codec":"pcm","channels":2,"sample_rate":48000,"bit_depth":16}}}"#)).await.unwrap();
+        let (tcp,_) = listener.accept().await.unwrap();
+        let mut next = tokio_tungstenite::accept_async(tcp).await.unwrap();
+        recovered_session(&mut next).await;
+        assert_eq!(state.lock().unwrap().opens, 2);
+    }).await.unwrap();
+    handle.shutdown().await;
 }

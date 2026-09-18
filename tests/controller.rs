@@ -174,6 +174,7 @@ async fn events_route_by_queue_and_a_position_needs_no_request() {
 
     let (feed, stream) = tokio::sync::mpsc::channel(16);
     let mut controller = Controller::start(client, Some(stream), false);
+    feed.send(Event::Online).await.unwrap();
     controller.selection.send(Some("p1".into())).unwrap();
 
     // Wait until a queue has actually been read, so the controller knows which
@@ -188,8 +189,8 @@ async fn events_route_by_queue_and_a_position_needs_no_request() {
     })
     .await
     .expect("the selected queue is read once");
-    // Startup reads twice — the first tick and the selection change — so let
-    // those finish before counting. The live interval is far away.
+    // Let the initial tick, Online refresh and selection reads finish before
+    // counting. The live interval is far away.
     tokio::time::sleep(Duration::from_millis(500)).await;
     let settled = requests.load(Ordering::Acquire);
 
@@ -225,4 +226,111 @@ async fn events_route_by_queue_and_a_position_needs_no_request() {
         .await
         .unwrap();
     server.abort();
+}
+
+/// An event receiver is created before connecting/authenticating; a socket
+/// that never connects must not slow HTTP updates to the live-stream interval.
+#[tokio::test]
+async fn an_event_stream_that_never_opens_keeps_fallback_polling() {
+    let (_feed, stream) = tokio::sync::mpsc::channel(16);
+    let (mut controller, server) = polling_fixture(Some(stream)).await;
+    expect_players(&mut controller).await;
+    expect_players(&mut controller).await;
+    controller.shutdown().await;
+    server.abort();
+}
+
+#[tokio::test]
+async fn polling_tracks_online_offline_and_closed_event_streams() {
+    use ma_tui::events::Event;
+
+    let (feed, stream) = tokio::sync::mpsc::channel(16);
+    let (mut controller, server) = polling_fixture(Some(stream)).await;
+    expect_players(&mut controller).await;
+
+    feed.send(Event::Online).await.unwrap();
+    expect_live_polling(&mut controller).await;
+    feed.send(Event::Offline).await.unwrap();
+    expect_stream(&mut controller, false).await;
+    expect_players(&mut controller).await;
+    expect_players(&mut controller).await;
+
+    feed.send(Event::Online).await.unwrap();
+    expect_live_polling(&mut controller).await;
+
+    // Closing the receiver's source is another form of outage, even when it
+    // cannot send an Offline event first.
+    drop(feed);
+    expect_stream(&mut controller, false).await;
+    expect_players(&mut controller).await;
+    expect_players(&mut controller).await;
+    controller.shutdown().await;
+    server.abort();
+}
+
+async fn expect_live_polling(controller: &mut Controller) {
+    use std::time::Duration;
+
+    expect_stream(controller, true).await;
+    // Reconnecting immediately refreshes the snapshot. Let those reads
+    // finish before checking that the fallback timer has been replaced.
+    expect_players(controller).await;
+    while let Ok(update) =
+        tokio::time::timeout(Duration::from_millis(100), controller.updates.recv()).await
+    {
+        assert!(matches!(update, Some(Update::Players(_))));
+    }
+    assert!(
+        tokio::time::timeout(Duration::from_millis(2500), controller.updates.recv())
+            .await
+            .is_err(),
+        "an authenticated live stream must not keep polling every two seconds"
+    );
+}
+
+async fn polling_fixture(
+    stream: Option<tokio::sync::mpsc::Receiver<ma_tui::events::Event>>,
+) -> (Controller, tokio::task::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let client = ApiClient::new(
+        &format!("http://{}", listener.local_addr().unwrap()),
+        "fixture-token",
+    )
+    .unwrap();
+    let server = tokio::spawn(async move {
+        loop {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut buffer = [0; 4096];
+            assert!(socket.read(&mut buffer).await.unwrap() > 0);
+            socket
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n[]")
+                .await
+                .unwrap();
+        }
+    });
+    (Controller::start(client, stream, false), server)
+}
+
+async fn expect_players(controller: &mut Controller) {
+    let update = tokio::time::timeout(std::time::Duration::from_secs(5), controller.updates.recv())
+        .await
+        .expect("fallback polling must refresh player state within five seconds");
+    assert!(matches!(update, Some(Update::Players(_))));
+}
+
+async fn expect_stream(controller: &mut Controller, online: bool) {
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            match controller.updates.recv().await {
+                Some(Update::Stream(actual)) => {
+                    assert_eq!(actual, online);
+                    return;
+                }
+                Some(Update::Players(_)) => continue,
+                _ => panic!("expected a stream status update"),
+            }
+        }
+    })
+    .await
+    .expect("the event stream status must reach the interface");
 }
